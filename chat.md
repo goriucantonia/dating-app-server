@@ -11,7 +11,7 @@ After the user selects their one match from a completed analysis, this module ru
 ## 2. Core features and async operation
 
 - **Selection creates the session.** `POST /analyses/{id}/select {candidate_user_id}` — valid only on a `complete` analysis, for one of its candidates, once per analysis. Creates the session, pins the candidate's **matched snapshot** (the same one the dates ran against — the user chats with the person they read transcripts of, not a possibly-recompiled newer persona), and compiles the date digest once via `DateDigest` (no AI call; assembled from evaluations).
-- **Turn handling.** `POST /chat/sessions/{id}/messages` is a plain async request–response: persist the user message, one AI call, persist and return the persona reply. Seconds, not minutes — no background job, no polling. *(Trade: no token streaming this phase; a reply arrives whole after a few seconds. Accepted — streaming across three Flutter platforms is polish, not function. Revisit if replies feel dead.)*
+- **Turn handling.** `POST /chat/sessions/{id}/messages` is a plain async request–response: persist the user message, one AI call, persist and return the persona reply. Seconds, not minutes — no background job, no polling. *(Built 2026-09-01, Step 14 — one revision: when the reply call gives up, the user's message is **rolled back**, not persisted. The plan's UX (`chat_selection.md`) keeps the text in the composer with a retry, and a retry that re-sends a message the server already stored would double-post it. Cost: a server-side record of what the user tried to say is lost on failure; accepted — the client still has it, and the failure is logged with the raw output.)* *(Trade: no token streaming this phase; a reply arrives whole after a few seconds. Accepted — streaming across three Flutter platforms is polish, not function. Revisit if replies feel dead.)*
 - **Same schema, hidden metadata.** Persona replies go through the Structured Output Guard with `agent_response.v1` — identical to dates — so internal state keeps being tracked and stored. The chat UI does **not** display the metadata *(trade: less spectacle; accepted — a live conversation where you watch the other side's connection meter turns chatting into gaming a gauge; the data still exists for a future "relationship insights" view)*.
 - **Simulated history, honestly framed.** The system prompt extends the persona snapshot with:
   1. the date digest ("in a simulated date at the car meet, you two clicked about engine swaps; a vintage Mustang pulled up…");
@@ -72,7 +72,8 @@ class ChatService(Protocol):
 |---|---|
 | `POST /analyses/{id}/select` | Create the session; 409 if analysis not `complete` or already selected. |
 | `GET /chat/sessions` | The user's sessions, active first. |
-| `GET /chat/sessions/{id}/messages?after_seq=` | Paged history (no `state` field in the response — metadata stays server-side). |
+| `GET /chat/sessions/{id}` | *(Added 2026-09-01, Step 14)* Header detail for the chat screen: the match (with `is_demo`), their trait **labels** only, the date digest, the pinned `snapshot_id`. Same wire rule as candidates — no descriptions, no answers. |
+| `GET /chat/sessions/{id}/messages?after_seq=` | Paged history (no `state` field in the response — metadata stays server-side). *(Built 2026-09-01: ascending from `after_seq`, `limit` ≤ 200, `has_more` + `next_after_seq`; the client pages forward until `has_more` is false.)* |
 | `POST /chat/sessions/{id}/messages` | Send + receive, as above. |
 | `POST /chat/sessions/{id}/end` | Mark ended. |
 
@@ -83,5 +84,5 @@ Logging obligations (§7): every reply logs session/seq/provider/model/attempt/o
 1. Selection pins the matched snapshot; one selection per analysis; sessions persist.
 2. Replies use `agent_response.v1`; metadata stored, hidden from the chat UI.
 3. Simulated-history framing rules, verbatim in the system prompt.
-4. Compaction: last-40 verbatim window + running summary folded every 20.
+4. Compaction: last-40 verbatim window + running summary folded every 20. *(Built 2026-09-01: `fold_plan()` in `app/chat.py` is the arithmetic, unit-tested at the boundary — the first fold runs as the 41st message is about to be written, folding seqs 1–20; the second as the 61st is sent. `chat_compaction.v1` asks for ONE field, `summary`, on purpose. The compaction is committed on its own before the reply call, so a reply that then fails does not undo it.)*
 5. Synchronous request–response chat; no streaming this phase.

@@ -101,4 +101,9 @@ ai:
     # date_simulation and chat_compaction belong to Steps 11 and 14 and stay
     # unfilled until those steps need them.
     chat_reply:          { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
-    chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }
+    # FILLED 2026-09-01 (Step 14): compaction is the one call that keeps an
+    # unbounded chat inside a bounded context (chat.md §2), and AC4 cannot be
+    # witnessed with the slot empty. Same measured model as the rest for the
+    # same reason — it is one of the two free models that passed a real
+    # schema in the Step 6 shootout. Provisional, like every pin above.
+    chat_compaction:     { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }

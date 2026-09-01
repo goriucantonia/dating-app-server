@@ -22,6 +22,7 @@ from app.logging_setup import log_event, setup_logging
 from app.reconcile import reconcile, relaunch_stuck_analyses
 from app.routers import analyses as analyses_router
 from app.routers import auth as auth_router
+from app.routers import chat as chat_router
 from app.routers import me as me_router
 from app.routers import persona as persona_router
 from app.routers import questions as questions_router
@@ -79,6 +80,7 @@ app.include_router(traits_router.router)
 app.include_router(persona_router.router)
 app.include_router(analyses_router.router)
 app.include_router(simulation_router.router)
+app.include_router(chat_router.router)
 
 app.add_middleware(
     CORSMiddleware,

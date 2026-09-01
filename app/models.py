@@ -463,3 +463,68 @@ class CandidateScore(Base):
     final_score: Mapped[float] = mapped_column(REAL, nullable=False)
     dates_completed: Mapped[int] = mapped_column(Integer, nullable=False)
     dates_incomplete: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+# --- Step 14: chat (migration 0008) -----------------------------------------
+
+
+class ChatSession(Base):
+    """One per selection, one selection per analysis (UNIQUE analysis_id).
+
+    `snapshot_id` has NO cascade, deliberately: it pins the candidate's
+    MATCHED snapshot — the one the dates ran against — and a session must
+    always be able to name the persona it was talking to."""
+
+    __tablename__ = "chat_sessions"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','ended')"),
+        UniqueConstraint("analysis_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    match_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analyses.id", ondelete="CASCADE"), nullable=False
+    )
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
+    )
+    date_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    compacted_upto_seq: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class ChatMessage(Base):
+    """`state` is the persona's inner state — stored, and stripped from every
+    chat payload by contract. NULL for the user's own messages, and
+    `none_as_null` so that NULL is SQL NULL (D-011)."""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        CheckConstraint("sender IN ('user','persona')"),
+        UniqueConstraint("session_id", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    sender: Mapped[str] = mapped_column(Text, nullable=False)
+    text_: Mapped[str] = mapped_column("text", Text, nullable=False)
+    state: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    provider: Mapped[str | None] = mapped_column(Text)
+    model_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
