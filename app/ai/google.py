@@ -9,6 +9,8 @@ Nothing outside app/ai/ may import this file (§16).
 
 from __future__ import annotations
 
+import math
+
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -24,6 +26,17 @@ from app.ai.base import (
 )
 from app.ai.resilience import RateLimiter, execute
 from app.ai.structured import guarded_structured_call, schema_prompt_block
+
+# Must match the profile_embeddings vector(768) column — the schema is the
+# system truth for dimensionality; gemini-embedding-001's default is 3072.
+EMBEDDING_DIMENSIONS = 768
+
+
+def _l2_normalize(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(v * v for v in vector))
+    if norm == 0.0:
+        return vector
+    return [v / norm for v in vector]
 
 
 def _map_error(exc: genai_errors.APIError, *, task: str, model: str) -> AIError:
@@ -134,7 +147,13 @@ class GoogleProvider:
         async def _call() -> list[list[float]]:
             client = self._client_or_raise(task="embeddings", model=model)
             try:
-                resp = await client.aio.models.embed_content(model=model, contents=texts)
+                resp = await client.aio.models.embed_content(
+                    model=model,
+                    contents=texts,
+                    config=genai_types.EmbedContentConfig(
+                        output_dimensionality=EMBEDDING_DIMENSIONS
+                    ),
+                )
             except genai_errors.APIError as exc:
                 raise _map_error(exc, task="embeddings", model=model) from exc
             if not resp.embeddings:
@@ -142,7 +161,10 @@ class GoogleProvider:
                     "google returned no embeddings",
                     task="embeddings", provider=self.name, model=model,
                 )
-            return [list(e.values or []) for e in resp.embeddings]
+            # At non-default dimensionality the API returns UNnormalized vectors;
+            # normalized storage keeps cosine and dot-product interchangeable
+            # (ai_interaction.md §3, revision 2026-09-01).
+            return [_l2_normalize(list(e.values or [])) for e in resp.embeddings]
 
         return await execute(
             _call, task="embeddings", provider=self.name, model=model, limiter=self.limiter

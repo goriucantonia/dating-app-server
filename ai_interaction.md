@@ -48,8 +48,13 @@ ai:
 
   embeddings:                       # pinned SEPARATELY from chat models:
     provider: google                # every stored vector must come from the same model
-    model: text-embedding-004       # or similarity comparisons are meaningless.
+    model: gemini-embedding-001     # or similarity comparisons are meaningless.
                                     # Changing this = migration + re-embed all users.
+```
+
+*(Revision 2026-09-01, per principle 23: the pin was `text-embedding-004`, but Google's API now returns 404 for it — the model was withdrawn. New pin: `gemini-embedding-001`, the current stable embedding model, with **768 output dimensions requested explicitly** (its default is 3072) so `vector(768)` and every stored vector stay consistent. Vectors are L2-normalized by the provider wrapper — at non-default dimensionality the API returns unnormalized vectors, and normalized storage keeps cosine and dot-product interchangeable. The swap happened before any vector was ever stored, so no migration or re-embed was needed.)*
+
+```yaml
   routing:
     dispute_followups:   { provider: openrouter, model: "free-model-of-choice" }
     trait_extraction:    { provider: google,     model: "gemini-flash" }

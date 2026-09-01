@@ -51,7 +51,9 @@ async def main() -> int:
     req = GenRequest(
         task="trait_extraction", model=model,
         messages=[Message(role="user", content="Reply with the single word: ready")],
-        temperature=0.0, max_tokens=20,
+        # Generous budget: thinking models spend tokens on reasoning before
+        # any visible text; a tight cap yields MAX_TOKENS with no output.
+        temperature=0.0, max_tokens=2000,
     )
     try:
         result = await provider.generate(req)
@@ -65,7 +67,7 @@ async def main() -> int:
             GenRequest(
                 task="trait_extraction", model=model,
                 messages=[Message(role="user", content="Greet me and pick a number 1-10.")],
-                temperature=0.0, max_tokens=100,
+                temperature=0.0, max_tokens=2000,
             ),
             PING_SCHEMA,
         )

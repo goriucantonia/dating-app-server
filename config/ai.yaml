@@ -12,17 +12,21 @@ ai:
 
   embeddings:                       # pinned SEPARATELY from chat models:
     provider: google                # every stored vector must come from the same model
-    model: text-embedding-004       # or similarity comparisons are meaningless.
+    model: gemini-embedding-001     # or similarity comparisons are meaningless.
                                     # Changing this = migration + re-embed all users.
+                                    # (REVISED 2026-09-01: the API rejected the spec's
+                                    # text-embedding-004 as gone; zero vectors existed,
+                                    # so the swap cost nothing. 768 dims requested
+                                    # explicitly — see ai_interaction.md §3.)
   routing:
-    # google slots: gemini-2.5-flash is PROVISIONAL (2026-09-01) — the spec's
-    # "gemini-flash" is not a callable model id; a real id is needed to
-    # exercise the paths in Step 2. Final choice still belongs to the gates.
+    # google slots: gemini-3.6-flash is PROVISIONAL (2026-09-01, revised same
+    # day: the API rejected gemini-2.5-flash as unavailable to new users and
+    # named 3.6 as its successor). Final choice still belongs to the gates.
     dispute_followups:   { provider: openrouter, model: "free-model-of-choice" }
-    trait_extraction:    { provider: google,     model: "gemini-2.5-flash" }
-    persona_digest:      { provider: google,     model: "gemini-2.5-flash" }
+    trait_extraction:    { provider: google,     model: "gemini-3.6-flash" }
+    persona_digest:      { provider: google,     model: "gemini-3.6-flash" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
     date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
-    judging:             { provider: google,     model: "gemini-2.5-flash" }
+    judging:             { provider: google,     model: "gemini-3.6-flash" }
     chat_reply:          { provider: openrouter, model: "free-model-of-choice" }
     chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }
