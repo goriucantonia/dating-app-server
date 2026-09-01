@@ -1,0 +1,140 @@
+# GENERATED VERBATIM from module_1_data_collection.md (A2 + A5.3) by
+# scripts/check_question_seeds.py --write. Do not edit by hand — the
+# module plan is the source of truth and the checker diffs against it.
+baseline:
+- code: BQ1
+  probe_area: interests
+  text: What do you love spending your time on? Pick one or two things and walk me through how you actually engage with them — do you read and research, learn by doing, do it with people or alone? Give a recent concrete example.
+- code: BQ2
+  probe_area: partner_criteria
+  text: Describe the person you'd want to be with. Which traits actually matter to you, which are nice-to-haves, and what is a hard dealbreaker? Be specific — 'kind' is not specific.
+- code: BQ3
+  probe_area: situational
+  text: Tell me about a recent disagreement or stressful moment with someone. What did you actually say and do, what were you feeling, and looking back, what would you keep or change?
+- code: BQ4
+  probe_area: situational
+  text: How do you act around someone you like? How do you show interest, what do you talk about on a good first date, and what makes you open up — or shut down?
+- code: BQ5
+  probe_area: self_image
+  text: How would a close friend honestly describe you, including the annoying parts? What do people tend to get wrong about you at first?
+pool:
+- code: PQ01
+  pool_order: 1
+  probe_area: interests
+  text: What's a hobby or skill you abandoned but still think about? What pulled you away, and what would bring you back?
+- code: PQ02
+  pool_order: 2
+  probe_area: interests
+  text: You get a completely free Saturday — no obligations, no guilt. Walk me through it, morning to night.
+- code: PQ03
+  pool_order: 3
+  probe_area: interests
+  text: What topic could you talk about for an hour with no preparation? How did you get into it?
+- code: PQ04
+  pool_order: 4
+  probe_area: interests
+  text: What are you currently learning, or itching to learn? How do you go about learning things — courses, videos, just diving in?
+- code: PQ05
+  pool_order: 5
+  probe_area: interests
+  text: Describe your ideal trip. Planned to the hour or improvised? Packed with activity or still? Who's with you, if anyone?
+- code: PQ06
+  pool_order: 6
+  probe_area: interests
+  text: What do you make, fix, build, or grow? Anything counts — food, code, furniture, playlists, a garden.
+- code: PQ07
+  pool_order: 7
+  probe_area: partner_criteria
+  text: Think of a couple you actually admire. What do they have that you want for yourself?
+- code: PQ08
+  pool_order: 8
+  probe_area: partner_criteria
+  text: What's something a partner did — or could do — that instantly makes you feel cared for? Something small counts.
+- code: PQ09
+  pool_order: 9
+  probe_area: partner_criteria
+  text: What would a partner simply have to accept about you, no negotiation? Be honest.
+- code: PQ10
+  pool_order: 10
+  probe_area: partner_criteria
+  text: In a normal week, how much together-time versus alone-time do you actually need? What happens when you don't get the alone part?
+- code: PQ11
+  pool_order: 11
+  probe_area: partner_criteria
+  text: When you're struggling, what do you want from a partner — solutions, listening, distraction, space? What do people usually get wrong?
+- code: PQ12
+  pool_order: 12
+  probe_area: partner_criteria
+  text: What's a relationship opinion you hold that most people around you disagree with?
+- code: PQ13
+  pool_order: 13
+  probe_area: situational
+  text: Your date is 25 minutes late, phone off. They arrive full of apologies. What do you actually say — and what are you feeling underneath?
+- code: PQ14
+  pool_order: 14
+  probe_area: situational
+  text: You deeply disagree with someone you care about on something that matters. Walk me through what you actually do, step by step.
+- code: PQ15
+  pool_order: 15
+  probe_area: situational
+  text: Your partner had an awful day and snaps at you over nothing. What happens in the next five minutes?
+- code: PQ16
+  pool_order: 16
+  probe_area: situational
+  text: You're at a party where you know almost nobody. What do you actually do for the first half hour?
+- code: PQ17
+  pool_order: 17
+  probe_area: situational
+  text: Something genuinely embarrassing happens to you on a date. What's your move — laugh it off, own it, die inside quietly?
+- code: PQ18
+  pool_order: 18
+  probe_area: situational
+  text: You planned something special and it falls apart at the last minute. What's your honest, real-time reaction?
+- code: PQ19
+  pool_order: 19
+  probe_area: conversational
+  text: What's your favorite kind of conversation — deep and personal, playful banter, a good-natured argument, trading stories? Give a real example of a great one you had.
+- code: PQ20
+  pool_order: 20
+  probe_area: conversational
+  text: How do you tell someone something they don't want to hear? Tell me about a time you had to.
+- code: PQ21
+  pool_order: 21
+  probe_area: conversational
+  text: In a group conversation, what role do you naturally fall into — the storyteller, the questioner, the referee, the quiet one who lands one good line?
+- code: PQ22
+  pool_order: 22
+  probe_area: conversational
+  text: What question do you wish people asked you more often? Answer it.
+- code: PQ23
+  pool_order: 23
+  probe_area: conversational
+  text: When someone tells you a long story, what's honestly going on in your head — absorbed listening, planning your reply, connecting it to your own life?
+- code: PQ24
+  pool_order: 24
+  probe_area: conversational
+  text: 'Teasing: do you dish it out, take it, both, neither? Where exactly is the line for you?'
+- code: PQ25
+  pool_order: 25
+  probe_area: self_image
+  text: What's a compliment that stuck with you for years? Why did that one land?
+- code: PQ26
+  pool_order: 26
+  probe_area: self_image
+  text: What's a flaw you've genuinely worked on? How is that going — honestly?
+- code: PQ27
+  pool_order: 27
+  probe_area: self_image
+  text: When you're stressed, what do you do that other people notice before you do?
+- code: PQ28
+  pool_order: 28
+  probe_area: self_image
+  text: After a conflict with someone close, what do you need — space, contact, a resolution talk, humor? How long until you're actually over it?
+- code: PQ29
+  pool_order: 29
+  probe_area: self_image
+  text: What are you proud of that you rarely get to talk about?
+- code: PQ30
+  pool_order: 30
+  probe_area: self_image
+  text: Your best friend gets to warn your future partner about one thing. What do they say — and are they right?

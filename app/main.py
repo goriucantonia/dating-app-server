@@ -19,6 +19,7 @@ from app.config import get_settings, load_ai_config
 from app.db import check_connection, create_engine
 from app.errors import ApiError, register_error_handlers
 from app.logging_setup import log_event, setup_logging
+from app.reconcile import reconcile
 
 logger = logging.getLogger("app.main")
 
@@ -50,6 +51,8 @@ async def lifespan(app: FastAPI):
     # Fails at startup on incoherent routing config, not mid-date (S2-B5).
     app.state.ai_router = TaskRouter(build_providers(ai_config), ai_config)
     app.state.engine = create_engine(settings.database_url)
+    # Startup reconciliation, step 1: seeded questions (§12 — no trust bypasses).
+    await reconcile(app.state.engine)
     yield
     await app.state.engine.dispose()
 

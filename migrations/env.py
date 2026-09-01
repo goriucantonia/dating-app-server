@@ -17,8 +17,9 @@ from sqlalchemy.pool import NullPool
 config = context.config
 config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
-# Step 3 points this at the SQLAlchemy models' metadata for autogenerate.
-target_metadata = None
+from app.models import Base  # noqa: E402 — alembic loads config first by design
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
