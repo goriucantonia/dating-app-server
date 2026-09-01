@@ -19,9 +19,22 @@ ai:
                                     # so the swap cost nothing. 768 dims requested
                                     # explicitly — see ai_interaction.md §3.)
   routing:
-    # google slots: gemini-3.6-flash is PROVISIONAL (2026-09-01, revised same
-    # day: the API rejected gemini-2.5-flash as unavailable to new users and
-    # named 3.6 as its successor). Final choice still belongs to the gates.
+    # REVISED 2026-09-01 (owner decision, Step 6): gemini-3.6-flash is used for
+    # NOTHING. Every chat/structured task routes to OpenRouter for now.
+    #
+    # New information that forced it: the google free tier behaves as a DAILY
+    # cap (limit: 20 on generate_content_free_tier_requests) and did not clear
+    # across a 75-second wait — it blocked Step 6's AC5 and AC6 witnesses
+    # outright. A model that runs out for the day is not a model you can build
+    # on. nvidia/nemotron-3.5-lightning:free is the free model that answered
+    # cleanly in Step 2's probe (z-ai/glm-5.2:free was saturated and leaks
+    # visible reasoning text into content).
+    #
+    # This is a PROVISIONAL pin exactly as the google one was — the final
+    # model-tier choice still belongs to the quota-fit and fidelity gates.
+    # Embeddings are pinned SEPARATELY below and are untouched by this: they
+    # are gemini-embedding-001, a different model on a different quota, and
+    # OpenRouter serves no embedding equivalent.
     # FILLED 2026-09-01 (owner decision, Step 6): dispute follow-ups are the
     # one AI-generated question type left in the system and Step 6's AC4 cannot
     # be witnessed without a model behind them. nvidia/nemotron-3.5-lightning
@@ -30,11 +43,11 @@ ai:
     # this off google also keeps it clear of the gemini free tier, which the
     # extraction path already presses against at 20 requests/minute.
     # The REMAINING free-model-of-choice slots stay deliberately unfilled.
-    dispute_followups:   { provider: openrouter, model: "nvidia/nemotron-3.5-lightning:free" }
-    trait_extraction:    { provider: google,     model: "gemini-3.6-flash" }
-    persona_digest:      { provider: google,     model: "gemini-3.6-flash" }
+    dispute_followups:   { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
+    trait_extraction:    { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
+    persona_digest:      { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
     date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
-    judging:             { provider: google,     model: "gemini-3.6-flash" }
+    judging:             { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     chat_reply:          { provider: openrouter, model: "free-model-of-choice" }
     chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }
