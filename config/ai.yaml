@@ -1,0 +1,25 @@
+# The per-task routing config — verbatim shape from ai_interaction.md §3 (locked).
+# Changing a model is an edit here, never a code change.
+#
+# `free-model-of-choice` slots are DELIBERATELY unfilled (owner decision,
+# 2026-09-01). Startup logs every unresolved route. They are chosen after the
+# quota-fit and fidelity-transfer gates, not before.
+
+ai:
+  providers:
+    google:     { api_key_env: GOOGLE_AI_API_KEY }
+    openrouter: { api_key_env: OPENROUTER_API_KEY }
+
+  embeddings:                       # pinned SEPARATELY from chat models:
+    provider: google                # every stored vector must come from the same model
+    model: text-embedding-004       # or similarity comparisons are meaningless.
+                                    # Changing this = migration + re-embed all users.
+  routing:
+    dispute_followups:   { provider: openrouter, model: "free-model-of-choice" }
+    trait_extraction:    { provider: google,     model: "gemini-flash" }
+    persona_digest:      { provider: google,     model: "gemini-flash" }
+    scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
+    date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
+    judging:             { provider: google,     model: "gemini-flash" }
+    chat_reply:          { provider: openrouter, model: "free-model-of-choice" }
+    chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }

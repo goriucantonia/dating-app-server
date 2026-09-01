@@ -1,0 +1,9 @@
+# server submodule ignores — the superproject root's .gitignore does not reach
+# in here (and this one does not cover the root).
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
