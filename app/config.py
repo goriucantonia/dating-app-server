@@ -38,9 +38,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
 
     # Local-only phase (decision log #11): Flutter web dev serves from a random
-    # localhost port, so dev CORS admits any localhost origin. Revisited with
-    # the hosting decision, not before it.
-    cors_origin_regex: str = r"http://localhost(:\d+)?"
+    # localhost port, so dev CORS admits any localhost origin. Both spellings —
+    # the flutter dev server binds IPv6-only when given the name `localhost`,
+    # which breaks the dwds debug socket on Windows, so it is run on 127.0.0.1
+    # and the browser origin is numeric. Revisited with the hosting decision,
+    # not before it.
+    cors_origin_regex: str = r"http://(localhost|127\.0\.0\.1)(:\d+)?"
 
     ai_config_path: Path = SERVER_ROOT / "config" / "ai.yaml"
 
