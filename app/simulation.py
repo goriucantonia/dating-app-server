@@ -67,10 +67,21 @@ DATE_TASK = "date_simulation"
 
 # --- The caps, exactly as date_simulation.md locks them (S11-B5) ------------
 #
-# The 30 counts ENVIRONMENT ROWS as messages. That scope is written down in
-# development_principles.md §18 precisely because it is the kind of rule
-# someone re-reads later and "fixes" into counting only what the agents said.
-MESSAGE_CAP = 30
+# REVISED 2026-09-01 (owner decision): the cap is now on TURNS, not messages,
+# and it is 16.
+#
+# This reverses a rule that development_principles.md §18 had held up as a
+# standing example — "the 30-message date cap counts environment events as
+# messages". It counted them because the cap was about transcript LENGTH. The
+# owner now specifies the budget per candidate as calls: 1 scenario + 16 turns
+# + 1 judge = 18. An environment row costs no call, so a cap that let events
+# eat into the budget would make the actual spend 13-16 turns depending on dice
+# — which is not a budget, it is a distribution.
+#
+# So: 16 agent turns, 8 each. Events still fire, still cap at 3, and are simply
+# not charged against the turn count. The transcript is therefore at most
+# TURN_CAP + MAX_EVENTS_PER_DATE rows.
+TURN_CAP = 16
 # REVISED 2026-09-01 (owner decision): ONE date per candidate, not two. A, B
 # and C get one evening apiece.
 #
@@ -90,11 +101,22 @@ DATES_PER_CANDIDATE = SETTINGS_PER_CANDIDATE
 MAX_DATES_PER_ANALYSIS = 3
 EVENT_PROBABILITY = 0.15
 MAX_EVENTS_PER_DATE = 3
+# Derived, never set by hand: the longest a transcript can get. Every turn plus
+# every event that could fire alongside them.
+MAX_MESSAGES_PER_DATE = TURN_CAP + MAX_EVENTS_PER_DATE
 # One closing exchange = one line each, once both of them want to wrap up.
 CLOSING_TURNS = 2
 # An `incomplete` date with this many messages is still worth judging
 # (date_simulation.md, locked #3). Step 12 owns the policy; the constant lives
 # here with the loop that produces the incomplete dates.
+#
+# LEFT AT 10 through the 2026-09-01 turn-cap change, deliberately, but its
+# MEANING moved and that is worth knowing. Against a 30-row date it was a
+# third; against a date of at most 19 rows it is closer to two-thirds. So it
+# now excludes MORE, not less — the safe direction, since the failure it
+# guards against is scoring an evening too thin to have been one. Revisit it
+# if too many genuinely half-finished dates start being thrown away; do not
+# revisit it to make the numbers look better.
 JUDGEABLE_MIN_MESSAGES = 10
 
 SCENARIO_MAX_TOKENS = 4096
@@ -142,15 +164,24 @@ def to_views(rows: list[DateMessage]) -> list[TurnView]:
     ]
 
 
+def turn_count(views: list[TurnView]) -> int:
+    """How many times an agent has spoken. NOT the row count.
+
+    This is the number the budget is written in: one turn is one model call,
+    and an environment row is not a turn. Both the alternation rule and the cap
+    read it, so they cannot disagree about what a turn is.
+    """
+    return sum(1 for v in views if v.speaker != "environment")
+
+
 def next_speaker(views: list[TurnView]) -> str:
     """Strict alternation, with the requester's agent opening.
 
-    Derived from the COUNT of agent messages rather than from "who spoke last",
+    Derived from the COUNT of agent turns rather than from "who spoke last",
     so an environment row between two turns cannot flip the order — and so a
     resumed date computes the same answer the killed one would have.
     """
-    spoken = sum(1 for v in views if v.speaker != "environment")
-    return "user_agent" if spoken % 2 == 0 else "candidate_agent"
+    return "user_agent" if turn_count(views) % 2 == 0 else "candidate_agent"
 
 
 def event_count(views: list[TurnView]) -> int:
@@ -191,11 +222,15 @@ def is_closing(views: list[TurnView]) -> bool:
 
 def ended_by(views: list[TurnView]) -> str | None:
     """`mutual_wants_to_end`, `cap`, or None — the two ways a date can finish,
-    named so the log can say which mechanism fired (AC4)."""
+    named so the log can say which mechanism fired (AC4).
+
+    The cap counts TURNS, not rows (revised 2026-09-01). An event that fires at
+    turn 15 does not cost the pair their last exchange.
+    """
     taken = closing_turns_taken(views)
     if taken is not None and taken >= CLOSING_TURNS:
         return "mutual_wants_to_end"
-    if len(views) >= MESSAGE_CAP:
+    if turn_count(views) >= TURN_CAP:
         return "cap"
     return None
 
@@ -500,7 +535,8 @@ def compose_system_prompt(ctx: DateContext, speaker: str, *, closing: bool) -> s
 def compose_messages(rows: list[DateMessage], speaker: str) -> list[Message]:
     """The transcript so far, from this agent's point of view (S11-B4.1).
 
-    The FULL transcript, never a summary: 30 messages fits any context window,
+    The FULL transcript, never a summary: a whole date is at most
+    MAX_MESSAGES_PER_DATE rows and fits any context window with room to spare,
     and summarising inside a date would mean the agent forgets the thing they
     were teasing each other about ten lines ago.
 

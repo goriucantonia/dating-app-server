@@ -490,12 +490,14 @@ def main() -> int:
         msgs = transcript(alice["token"], d["date_id"])["messages"]
         ok, detail = event_rules_hold(msgs)
         check(f"event rules hold on '{d['setting_name'][:40]}' (AC3)", ok, detail)
-        check(
-            f"…and it never exceeded the 30-message cap, events included (§18) "
-            f"on '{d['setting_name'][:30]}'",
-            len(msgs) <= 30, f"{len(msgs)} messages",
-        )
         spoken = [m for m in msgs if m["speaker"] != "environment"]
+        check(
+            f"…and it never exceeded the 16-TURN cap, with events on top "
+            f"(revised 2026-09-01) on '{d['setting_name'][:30]}'",
+            len(spoken) <= 16 and len(msgs) <= 19,
+            f"{len(spoken)} turns, {len(msgs) - len(spoken)} events, "
+            f"{len(msgs)} rows",
+        )
         check(
             f"…and every spoken turn carries its inner state on "
             f"'{d['setting_name'][:30]}'",

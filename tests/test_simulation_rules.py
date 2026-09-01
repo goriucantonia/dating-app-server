@@ -27,7 +27,8 @@ from app.simulation import (
     EVENT_PROBABILITY,
     MAX_DATES_PER_ANALYSIS,
     MAX_EVENTS_PER_DATE,
-    MESSAGE_CAP,
+    MAX_MESSAGES_PER_DATE,
+    TURN_CAP,
     DateContext,
     TurnView,
     build_scenario_request,
@@ -41,6 +42,7 @@ from app.simulation import (
     pick_event,
     should_inject_event,
     to_views,
+    turn_count,
 )
 
 USER = "user_agent"
@@ -188,18 +190,49 @@ def test_changing_your_mind_after_the_trigger_does_not_cancel_the_goodbye():
 
 
 def test_the_cap_ends_a_date_that_never_wound_down():
-    transcript = views(*[USER if i % 2 == 0 else CANDIDATE for i in range(MESSAGE_CAP)])
+    transcript = views(*[USER if i % 2 == 0 else CANDIDATE for i in range(TURN_CAP)])
     assert ended_by(transcript) == "cap"
     assert ended_by(transcript[:-1]) is None
 
 
-def test_the_cap_counts_environment_rows_as_messages():
-    """development_principles.md §18 writes this scope down because it is
-    exactly the rule someone later 'fixes' into counting only what was said."""
-    spoken = [USER if i % 2 == 0 else CANDIDATE for i in range(MESSAGE_CAP - 3)]
+def test_the_cap_counts_TURNS_and_NOT_environment_rows():
+    """REVISED 2026-09-01 (owner decision), and this test used to assert the
+    exact opposite — it is kept, inverted, rather than deleted, because the old
+    rule was a standing example in development_principles.md §18 and someone
+    will eventually remember it.
+
+    The budget is written in CALLS: 1 scenario + 16 turns + 1 judge. An
+    environment row costs no call, so charging it against the cap would make
+    the real spend 13-16 turns depending on dice — a distribution, not a
+    budget. Events are capped separately at 3.
+    """
+    spoken = [USER if i % 2 == 0 else CANDIDATE for i in range(TURN_CAP - 1)]
     transcript = views(*spoken, ENV, ENV, ENV)
-    assert len(transcript) == MESSAGE_CAP
-    assert ended_by(transcript) == "cap"
+    # Three events on top of fifteen turns: more ROWS than the old cap allowed
+    # in total, and still not finished, because one turn is still owed.
+    assert len(transcript) == TURN_CAP + 2
+    assert turn_count(transcript) == TURN_CAP - 1
+    assert ended_by(transcript) is None
+
+    # The sixteenth turn ends it, whatever the events did.
+    assert ended_by([*transcript, TurnView(speaker=CANDIDATE)]) == "cap"
+
+
+def test_the_longest_possible_transcript_is_the_derived_bound():
+    """MAX_MESSAGES_PER_DATE is derived from the two caps rather than typed,
+    so it cannot drift away from them."""
+    assert MAX_MESSAGES_PER_DATE == TURN_CAP + MAX_EVENTS_PER_DATE
+    full = views(
+        *[USER if i % 2 == 0 else CANDIDATE for i in range(TURN_CAP)],
+        ENV, ENV, ENV,
+    )
+    assert len(full) == MAX_MESSAGES_PER_DATE
+
+
+def test_the_turn_budget_is_sixteen():
+    """The owner's number, pinned. One turn is one model call, so this
+    constant IS the per-date spend."""
+    assert TURN_CAP == 16
 
 
 # --- Composing what the agent actually sees (S11-B4.1) ---------------------
