@@ -20,6 +20,8 @@ from app.db import check_connection, create_engine
 from app.errors import ApiError, register_error_handlers
 from app.logging_setup import log_event, setup_logging
 from app.reconcile import reconcile
+from app.routers import auth as auth_router
+from app.routers import me as me_router
 
 logger = logging.getLogger("app.main")
 
@@ -60,6 +62,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Dating App AI — API", lifespan=lifespan)
 
 register_error_handlers(app)
+
+app.include_router(auth_router.router)
+app.include_router(me_router.router)
 
 app.add_middleware(
     CORSMiddleware,
