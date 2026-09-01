@@ -22,7 +22,15 @@ ai:
     # google slots: gemini-3.6-flash is PROVISIONAL (2026-09-01, revised same
     # day: the API rejected gemini-2.5-flash as unavailable to new users and
     # named 3.6 as its successor). Final choice still belongs to the gates.
-    dispute_followups:   { provider: openrouter, model: "free-model-of-choice" }
+    # FILLED 2026-09-01 (owner decision, Step 6): dispute follow-ups are the
+    # one AI-generated question type left in the system and Step 6's AC4 cannot
+    # be witnessed without a model behind them. nvidia/nemotron-3.5-lightning
+    # is the free model that answered cleanly in Step 2's probe (z-ai/glm-5.2
+    # was saturated and leaks visible reasoning text into content). Keeping
+    # this off google also keeps it clear of the gemini free tier, which the
+    # extraction path already presses against at 20 requests/minute.
+    # The REMAINING free-model-of-choice slots stay deliberately unfilled.
+    dispute_followups:   { provider: openrouter, model: "nvidia/nemotron-3.5-lightning:free" }
     trait_extraction:    { provider: google,     model: "gemini-3.6-flash" }
     persona_digest:      { provider: google,     model: "gemini-3.6-flash" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
