@@ -25,7 +25,7 @@ from sqlalchemy import (
 )
 
 # The dialect ARRAY (not the generic one) — .contains() works only on it.
-from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -263,4 +263,63 @@ class CalibrationMessage(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     correction: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+
+
+# --- Step 9: analyses and candidates (migration 0005) ----------------------
+
+
+class Analysis(Base):
+    """ONE row per run, and the single object the UI polls for the whole
+    journey. The status machine is owned jointly: matching drives
+    `matching → matched | no_candidates | failed`; Step 11's simulation drives
+    `matched → simulating → complete | failed`."""
+
+    __tablename__ = "analyses"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('matching','matched','no_candidates','simulating',"
+            "'complete','failed')"
+        ),
+        CheckConstraint("pool_status IN ('full','partial','empty')"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    pool_status: Mapped[str | None] = mapped_column(Text)
+    # Reserved for Step 11 — see migration 0005.
+    progress: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _created_at()
+
+
+class AnalysisCandidate(Base):
+    __tablename__ = "analysis_candidates"
+    __table_args__ = (
+        UniqueConstraint("analysis_id", "candidate_user_id"),
+        UniqueConstraint("analysis_id", "rank"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analyses.id", ondelete="CASCADE"), nullable=False
+    )
+    candidate_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    fit_forward: Mapped[float] = mapped_column(REAL, nullable=False)
+    fit_backward: Mapped[float] = mapped_column(REAL, nullable=False)
+    compatibility: Mapped[float] = mapped_column(REAL, nullable=False)
+    shared_interests: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    reason_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    # No cascade, deliberately: this FREEZES the candidate's persona at match
+    # time (trade #4), which only holds if the snapshot cannot vanish.
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
+    )
     created_at: Mapped[datetime] = _created_at()

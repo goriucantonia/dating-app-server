@@ -13,12 +13,17 @@ HTTP, with a freshly registered user and REAL AI calls:
 - the edit changes traits_hash, which is what makes embeddings and the
   persona snapshot stale (A5.1).
 
-One assertion is deliberately absent and is an owed measurement (§4, O-2):
-that a pinned snapshot in a PAST analysis did not change. Analyses do not
-exist until Step 9, so there is nothing to pin yet; it is enabled in S9-P2.
-The stub below prints it as SKIPPED rather than silently omitting it, because
-a probe that quietly tests less than its docstring claims is worse than one
-that admits the gap.
+ENABLED in Step 9 (S9-P2), having been owed since Step 6 as O-2: a snapshot
+pinned in a PAST analysis does not change when the user later edits an answer.
+§14 calls the answer-edit staleness cascade a named accretion risk, and this
+is the assertion that contains it — an edit changes who you are FROM NOW ON
+and must never rewrite what a past analysis already ran against.
+
+It needs a populated pool to be meaningful: a lone probe user has nobody to
+match with, and there is then no pinned snapshot to check. In that case it
+prints SKIPPED with the reason rather than passing vacuously, because a probe
+that quietly tests less than its docstring claims is worse than one that
+admits the gap.
 
 Real AI calls: this probe costs several trait_extraction runs against the
 free tier. Mind the per-minute cap if you run it repeatedly.
@@ -31,6 +36,7 @@ Run inside the api container:
 from __future__ import annotations
 
 import sys
+import time
 import uuid
 
 import httpx
@@ -233,10 +239,52 @@ def main() -> int:
     )
 
     # --- the assertion that is not ours to make yet (O-2, closes in S9-P2) ---
-    skipped(
-        "a pinned snapshot in a past analysis did not change",
-        "analyses do not exist until Step 9; enabled in S9-P2 (owed measurement O-2)",
-    )
+    # --- S9-P2: the pinned snapshot of a PAST analysis must not move --------
+    #
+    # This was owed from Step 6 (O-2) and is enabled here now that analyses
+    # exist. §14 calls the answer-edit staleness cascade a named accretion
+    # risk, and this is the assertion that contains it: an edit changes who
+    # you are FROM NOW ON, and must never rewrite what a past analysis
+    # already ran against.
+    #
+    # It is only assertable when the run actually produced a candidate. A
+    # single probe user has nobody to match with, so the check states its own
+    # inapplicability rather than passing vacuously.
+    analysis = client.post("/analyses").json()
+    for _ in range(100):
+        analysis = client.get(f"/analyses/{analysis['id']}").json()
+        if analysis["status"] in {"matched", "no_candidates", "failed"}:
+            break
+        time.sleep(2)
+
+    if analysis["status"] == "matched" and analysis["candidates"]:
+        pinned = {
+            x["candidate_user_id"]: x["snapshot_id"] for x in analysis["candidates"]
+        }
+        # Edit an answer AFTER the analysis was pinned, then re-extract, which
+        # is exactly the cascade that could rewrite history if snapshots were
+        # mutable.
+        client.put(
+            f"/answers/{by_code['BQ5']}",
+            json={"answer_text": BASELINE_ANSWERS["BQ5"] + " I am also stubborn "
+                  "about finishing what I start, for better or worse."},
+        ).raise_for_status()
+        client.post("/profile/extract").raise_for_status()
+
+        after = client.get(f"/analyses/{analysis['id']}").json()
+        still = {x["candidate_user_id"]: x["snapshot_id"] for x in after["candidates"]}
+        check(
+            "a snapshot pinned in a PAST analysis did not change after an edit "
+            "(O-2, §14)",
+            still == pinned,
+            f"{pinned} -> {still}",
+        )
+    else:
+        skipped(
+            "a pinned snapshot in a past analysis did not change (O-2)",
+            f"this run produced no candidates (status={analysis['status']}), so "
+            "there is no pinned snapshot to check — needs a populated pool",
+        )
 
     failures = [label for label, ok in checks if not ok]
     if failures:

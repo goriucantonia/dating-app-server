@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -50,6 +51,13 @@ TASK = "trait_extraction"
 MAX_TOKENS = 8192
 
 _CATEGORIES = set(TRAIT_CATEGORIES)
+
+# `T1`, `BQ1`, `PQ07` — identifiers this call itself puts in front of the
+# model. A model that echoes one into `label` has produced a row that is
+# useless everywhere downstream: shared_interests intersects LABELS, the
+# persona prompt lists them, and the profile screen shows them. Observed
+# for real (D-009), so this is a guard and not a hypothetical.
+_IDENTIFIER_LIKE = re.compile(r"^[A-Za-z]{1,3}[-_ ]?\d{1,3}$")
 
 SYSTEM_PROMPT = """\
 You read a person's own words about themselves and maintain a structured list \
@@ -186,7 +194,11 @@ def _build_handles(traits: list[Trait]) -> tuple[dict[str, Trait], str]:
     `app/schemas/trait_extraction.py` for why UUIDs never cross the wire."""
     by_handle = {f"T{i}": t for i, t in enumerate(traits, start=1)}
     if not by_handle:
-        return {}, "(none yet — this is the first extraction for this person)"
+        return {}, (
+            "(EMPTY — no traits exist for this person yet, so there is "
+            "nothing to return a verdict about. See the instruction at the "
+            "end of this message.)"
+        )
     lines = [
         f"{h}: [{t.category}] {t.label} — {t.description} "
         f"(status: {t.status}, confidence: {t.confidence:.2f})"
@@ -276,7 +288,17 @@ async def run_extraction(
             "missed something outright — not merely that you would have phrased "
             "it differently."
             if by_handle
-            else "This is the first reading, so every trait you find is an addition."
+            else (
+                "THE TRAIT LIST IS EMPTY. This person has no traits yet.\n\n"
+                "Therefore `verdicts` MUST be an empty array: [].\n\n"
+                "There is nothing to return a verdict about — a verdict "
+                "refers to a trait that already exists, and none do. Put "
+                "every trait you find in `additions`.\n\n"
+                "The codes above (BQ1, PQ07 and so on) name ANSWERS, not "
+                "traits. Cite them in source_question_codes. NEVER use one "
+                "as a label: a label is a short human phrase like "
+                "\"restores old bicycles\", never a code or an identifier."
+            )
         )
     )
 
@@ -421,6 +443,12 @@ async def _apply(
         description = (add.get("description") or "").strip()
         if category not in _CATEGORIES or not label or not description:
             outcome.ignored.append(f"add '{label or '(blank)'}': incomplete")
+            continue
+        if _IDENTIFIER_LIKE.match(label):
+            # Dropped rather than stored: a trait labelled "T1" poisons the
+            # trait block in every persona prompt and makes shared-interest
+            # matching silently impossible. Loud beats quietly wrong.
+            outcome.ignored.append(f"add '{label}': label is an identifier, not a label")
             continue
         sources = _resolve_sources(add.get("source_question_codes"), by_code)
         if not sources:

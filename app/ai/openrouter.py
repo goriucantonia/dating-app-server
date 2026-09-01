@@ -86,7 +86,7 @@ class OpenRouterProvider:
             raise NativeStructuredUnsupported(
                 f"model {model} rejects response_format json_schema", **kw
             )
-        if resp.status_code == 400 and "Provider returned error" in resp.text:
+        if resp.status_code != 200 and "Provider returned error" in resp.text:
             # OpenRouter serves one model id from SEVERAL upstream providers and
             # picks per request. This body is OpenRouter telling us the UPSTREAM
             # failed — structurally different from OpenRouter rejecting our

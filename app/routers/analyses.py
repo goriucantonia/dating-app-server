@@ -1,0 +1,169 @@
+"""Analysis endpoints (S9-B9, B10).
+
+- POST /analyses        — start a run; returns immediately with `matching`
+- GET  /analyses/{id}   — the UI's SINGLE polling target for the whole journey
+- GET  /analyses        — history, newest first
+
+The 409 on a second run is **state, not failure** (communication_protocol.md
+§5, §17): the caller is told which analysis is already running so it can go
+poll that one, rather than being handed an error to display.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.errors import ApiError
+from app.logging_setup import log_event
+from app.matching import start_and_run
+from app.models import Analysis, AnalysisCandidate, User
+from app.security import CurrentUser, DbSession
+from app.users import compute_age
+
+router = APIRouter(tags=["analyses"])
+logger = logging.getLogger("app.analyses")
+
+# A run is "active" in these states — the ones where starting a second would
+# duplicate work or race it. `matched` is NOT active: matching is done and
+# Step 11 has not started simulating.
+ACTIVE_STATES = ("matching", "simulating")
+
+_tasks: set[asyncio.Task] = set()
+
+
+class CandidateOut(BaseModel):
+    candidate_user_id: str
+    display_name: str
+    age: int
+    rank: int
+    fit_forward: float
+    fit_backward: float
+    compatibility: float
+    shared_interests: list[str]
+    reason_summary: str
+    snapshot_id: str
+
+
+class AnalysisOut(BaseModel):
+    id: str
+    status: str
+    pool_status: str | None
+    error: str | None
+    created_at: datetime
+    candidates: list[CandidateOut] = []
+    # The plain sentence the UI shows when there is nobody. Server-side so the
+    # honest-empty-pool wording cannot drift between clients (§26).
+    message: str | None = None
+
+
+async def _build(session, analysis: Analysis) -> AnalysisOut:
+    rows = (
+        await session.execute(
+            select(AnalysisCandidate, User)
+            .join(User, User.id == AnalysisCandidate.candidate_user_id)
+            .where(AnalysisCandidate.analysis_id == analysis.id)
+            .order_by(AnalysisCandidate.rank)
+        )
+    ).all()
+    return AnalysisOut(
+        id=str(analysis.id), status=analysis.status,
+        pool_status=analysis.pool_status, error=analysis.error,
+        created_at=analysis.created_at,
+        candidates=[
+            CandidateOut(
+                candidate_user_id=str(c.candidate_user_id),
+                display_name=u.display_name, age=compute_age(u.birth_date),
+                rank=c.rank, fit_forward=float(c.fit_forward),
+                fit_backward=float(c.fit_backward),
+                compatibility=float(c.compatibility),
+                shared_interests=list(c.shared_interests or []),
+                reason_summary=c.reason_summary, snapshot_id=str(c.snapshot_id),
+            )
+            for c, u in rows
+        ],
+        message=(
+            "There is no one to match you with yet."
+            if analysis.status == "no_candidates"
+            else None
+        ),
+    )
+
+
+async def _run(app, analysis_id: uuid.UUID) -> None:
+    factory = async_sessionmaker(app.state.engine, expire_on_commit=False)
+    async with factory() as session:
+        await start_and_run(session, app.state.ai_router, analysis_id)
+
+
+@router.post("/analyses", response_model=AnalysisOut, status_code=202)
+async def create_analysis(
+    request: Request, user: CurrentUser, session: DbSession
+) -> AnalysisOut:
+    """S9-B9/B10. Returns immediately — refreshing embeddings can mean AI
+    calls, which is exactly why this is a background job."""
+    active = (
+        await session.execute(
+            select(Analysis)
+            .where(Analysis.user_id == user.id, Analysis.status.in_(ACTIVE_STATES))
+            .order_by(Analysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if active is not None:
+        raise ApiError(
+            409, "analysis_in_progress",
+            "You've already got one running — hang on for that one to finish.",
+            fields=[{"field": "analysis_id", "message": str(active.id)}],
+        )
+
+    analysis = Analysis(user_id=user.id, status="matching")
+    session.add(analysis)
+    await session.commit()
+
+    log_event(
+        logger, "analysis_started",
+        user_id=str(user.id), analysis_id=str(analysis.id),
+    )
+    task = asyncio.create_task(_run(request.app, analysis.id))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return await _build(session, analysis)
+
+
+@router.get("/analyses/{analysis_id}", response_model=AnalysisOut)
+async def get_analysis(
+    analysis_id: str, user: CurrentUser, session: DbSession
+) -> AnalysisOut:
+    try:
+        parsed = uuid.UUID(analysis_id)
+    except ValueError as exc:
+        raise ApiError(404, "not_found", "That analysis doesn't exist.") from exc
+    analysis = (
+        await session.execute(
+            select(Analysis).where(Analysis.id == parsed, Analysis.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if analysis is None:
+        raise ApiError(404, "not_found", "That analysis doesn't exist.")
+    return await _build(session, analysis)
+
+
+@router.get("/analyses")
+async def list_analyses(user: CurrentUser, session: DbSession) -> dict:
+    """History, newest first — the revisitable-results decision."""
+    rows = (
+        await session.execute(
+            select(Analysis)
+            .where(Analysis.user_id == user.id)
+            .order_by(Analysis.created_at.desc())
+        )
+    ).scalars()
+    return {"analyses": [(await _build(session, a)).model_dump() for a in rows]}
