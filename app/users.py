@@ -6,7 +6,7 @@ the matching hard filters can never disagree.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from pydantic import BaseModel
 
@@ -16,7 +16,7 @@ GENDER_VALUES = ("man", "woman", "nonbinary", "other")
 
 
 def compute_age(birth_date: date, today: date | None = None) -> int:
-    today = today or date.today()
+    today = today or datetime.now(UTC).date()
     had_birthday = (today.month, today.day) >= (birth_date.month, birth_date.day)
     return today.year - birth_date.year - (0 if had_birthday else 1)
 

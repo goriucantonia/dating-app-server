@@ -13,7 +13,6 @@ from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    ARRAY,
     REAL,
     Boolean,
     CheckConstraint,
@@ -24,7 +23,9 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+
+# The dialect ARRAY (not the generic one) — .contains() works only on it.
+from sqlalchemy.dialects.postgresql import ARRAY, TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
