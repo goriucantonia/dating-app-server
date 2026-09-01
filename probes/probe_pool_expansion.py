@@ -6,7 +6,7 @@ over real HTTP, with a freshly registered user:
 - batches of 5 served strictly in pool_order;
 - a batch abandoned mid-way resumes with the same remaining questions;
 - baseline answers never count toward answered_pool (§13 / S5-B6);
-- a 199-character answer is rejected with the 422 envelope;
+- a 49-character answer is rejected with the 422 envelope;
 - an edit travels the identical upsert path and bumps updated_at;
 - exactly 6 batches exhaust the pool; batch 7 is the EXACT
   `pool_exhausted` payload (a normal 200, never a 4xx).
@@ -25,7 +25,7 @@ import httpx
 
 API = "http://localhost:8000"
 FILLER = (
-    "This is a probe answer written to satisfy the two-hundred-character "
+    "This is a probe answer written to satisfy the fifty-character "
     "minimum that applies to every answer in this system, baseline and pool "
     "and dispute alike, as principle eighteen insists the scope be written down. "
 )
@@ -64,11 +64,11 @@ def main() -> int:
     def answer(question_id: str, text: str = "") -> httpx.Response:
         return client.put(f"/answers/{question_id}", json={"answer_text": text or FILLER})
 
-    # --- 199 characters rejected, with the envelope ---
+    # --- 49 characters rejected, with the envelope (one under the minimum) ---
     b = batch()
-    short = answer(b["questions"][0]["id"], "x" * 199)
+    short = answer(b["questions"][0]["id"], "x" * 49)
     check(
-        "199-char answer rejected with 422 envelope",
+        "49-char answer rejected with 422 envelope",
         short.status_code == 422 and short.json().get("error", {}).get("code") == "validation_error",
         f"status {short.status_code}",
     )

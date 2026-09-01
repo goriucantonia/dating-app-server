@@ -141,7 +141,7 @@ class Question(Base):
 class Answer(Base):
     __tablename__ = "answers"
     __table_args__ = (
-        CheckConstraint("char_length(answer_text) >= 200"),
+        CheckConstraint("char_length(answer_text) >= 50"),
         UniqueConstraint("user_id", "question_id"),
     )
 

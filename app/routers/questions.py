@@ -7,7 +7,7 @@
   pool_order. The answer set IS the cursor; there is no assignment table.
   Pool done → a normal `pool_exhausted` payload, never a 4xx (§5, A5.4).
 - PUT /answers/{question_id} — ONE upsert path for the first write and every
-  later edit. The 200-character minimum applies to baseline, pool, AND
+  later edit. The 50-character minimum applies to baseline, pool, AND
   dispute answers (§18 — the scope is written down on purpose).
 
 Dispute questions never count toward answered_pool (§13, S5-B6): they are
@@ -71,7 +71,7 @@ class NextBatchOut(BaseModel):
 
 
 class AnswerIn(BaseModel):
-    answer_text: str = Field(min_length=200)
+    answer_text: str = Field(min_length=50)
 
 
 def _answerable_filter(user_id: uuid.UUID):

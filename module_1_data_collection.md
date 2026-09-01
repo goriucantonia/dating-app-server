@@ -26,7 +26,7 @@ Not on the form: no photos this phase (nothing in the product consumes them), no
 
 Five deep open-ended questions replace the earlier "~20 questions" draft. **Revision named per principle 23:** owner decision 2026-09-01 — depth over count; each answer probes several trait areas at once, and the raw text doubles as the voice sample the Persona Module uses for few-shot mimicry. Expected onboarding: ~10 minutes.
 
-Each question shows a nudge: *"Write at least 4–5 sentences, the way you'd actually say it. The AI learns your voice from how you write here."* Minimum enforced: 200 characters per answer.
+Each question shows a nudge: *"Write at least 4–5 sentences, the way you'd actually say it. The AI learns your voice from how you write here."* Minimum enforced: **50 characters per answer**. **Revision named per principle 23:** owner decision 2026-09-01 — lowered from 200, which was too much to demand at every one of 35 questions. The nudge is unchanged and deliberately still asks for more than the floor: it is guidance, the 50 is the hard refusal point. The scope is unchanged (§18): baseline, pool, AND dispute answers alike.
 
 | Code | Probe area | Question text |
 |---|---|---|
@@ -91,7 +91,7 @@ CREATE TABLE answers (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-    answer_text TEXT NOT NULL CHECK (char_length(answer_text) >= 200),
+    answer_text TEXT NOT NULL CHECK (char_length(answer_text) >= 50),   -- 50 per A2 revision (owner decision, 2026-09-01; was 200)
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),   -- bumped on edit; drives staleness (A5.1)
     UNIQUE (user_id, question_id)                      -- upsert target; enables save/resume AND edit
@@ -191,7 +191,7 @@ Flow: `GET /questions/next-batch` → the next 5 unanswered pool questions in `p
 
 ### A5.3 The question pool — PQ01–PQ30 (final)
 
-Thirty questions, six per probe area, seeded by startup reconciliation exactly like BQ1–BQ5. Same 200-character minimum and voice nudge.
+Thirty questions, six per probe area, seeded by startup reconciliation exactly like BQ1–BQ5. Same 50-character minimum and voice nudge (A2).
 
 | Code | Probe area | Question |
 |---|---|---|
