@@ -42,8 +42,11 @@ logger = logging.getLogger("app.extraction")
 
 TASK = "trait_extraction"
 
-# Generous on purpose: gemini-3.6-flash is a thinking model, and a tight budget
-# is spent on reasoning and returns MAX_TOKENS with no text (PICKUP, Step 2).
+# Generous on purpose. The original reason was google's thinking model spending
+# a tight budget on reasoning and returning MAX_TOKENS with no text; that model
+# is gone (owner decision 2026-09-01) but the budget stays, because this call
+# returns a verdict per existing trait PLUS additions and can legitimately be
+# long for a full 35-answer profile.
 MAX_TOKENS = 8192
 
 _CATEGORIES = set(TRAIT_CATEGORIES)
@@ -72,6 +75,12 @@ declined_answer_ids. Inventing a trait to fill space is the worst thing you \
 can do here.
 - Write descriptions in the third person, about this person, concretely. \
 Specific beats flattering, and specific beats vague.
+- Aim for roughly 8-12 traits in total for a complete profile, and fewer \
+while there are only a handful of answers. Thirty entries is not a sharper \
+picture of someone, it is the same picture cut into more pieces: each one \
+carries less, and the ones that actually matter stop standing out. If two \
+entries would sit in the same category and lean on the same answer, they \
+are one entry.
 
 About adding — read this twice, because it is the rule most easily broken \
 without noticing:

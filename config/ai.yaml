@@ -59,7 +59,13 @@ ai:
     trait_extraction:    { provider: openrouter, model: "nvidia/nemotron-3-super-120b-a12b:free" }
     persona_digest:      { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
-    date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
+    # FILLED 2026-09-01 (Step 8): S8-G1, the fidelity-transfer gate, has to be
+    # tested against the ACTUAL model dates will run on — a gate closed on a
+    # different model than production uses proves nothing. Deliberately the
+    # SAME model as chat_reply so calibration chat IS the date model,
+    # satisfying the gate condition by construction rather than by a special
+    # test path. Provisional; Step 11 revisits it with the quota-fit gate.
+    date_simulation:     { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     judging:             { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     # FILLED 2026-09-01 (Step 7): calibration chat — "meet your AI self" —
     # runs on chat_reply, so S7-B8 and AC7 cannot be witnessed with the slot
