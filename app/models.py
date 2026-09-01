@@ -191,3 +191,76 @@ class ProfileEmbedding(Base):
     embedding_model: Mapped[str] = mapped_column(Text, nullable=False)
     traits_hash: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = _created_at()
+
+
+# --- Step 7: persona snapshots and calibration (migration 0004) -------------
+
+
+class PersonaSnapshot(Base):
+    """Immutable, per-user versioned. Recompiling creates v(n+1); old
+    transcripts keep pointing at their own version, which is what lets a date
+    stay explainable forever — "the agent said X because snapshot v3 said Y"
+    (trait_persona.md §4). Nothing here is ever UPDATEd after 'ready'."""
+
+    __tablename__ = "persona_snapshots"
+    __table_args__ = (
+        CheckConstraint("status IN ('compiling','ready','failed')"),
+        UniqueConstraint("user_id", "version"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    # Nullable by design: the row is INSERTed as 'compiling' BEFORE the AI
+    # call, so a compilation that dies mid-flight leaves evidence, not nothing.
+    system_prompt: Mapped[str | None] = mapped_column(Text)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    traits_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    source_trait_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False
+    )
+    digest_model: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CalibrationSession(Base):
+    """`snapshot_id` deliberately has NO cascade: a calibration session must
+    always be able to name the persona version it was criticising."""
+
+    __tablename__ = "calibration_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CalibrationMessage(Base):
+    __tablename__ = "calibration_messages"
+    __table_args__ = (
+        CheckConstraint("sender IN ('user','persona')"),
+        UniqueConstraint("session_id", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("calibration_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    sender: Mapped[str] = mapped_column(Text, nullable=False)
+    text_: Mapped[str] = mapped_column("text", Text, nullable=False)
+    flagged: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    correction: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()

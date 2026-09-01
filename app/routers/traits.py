@@ -26,6 +26,7 @@ from app.errors import ApiError
 from app.extraction import extract_once, is_running
 from app.logging_setup import log_event
 from app.models import Question, Trait, TraitEvent
+from app.routers.persona import start_compile
 from app.schemas.dispute_followup import DISPUTE_FOLLOWUP_V1
 from app.security import CurrentUser, DbSession
 from app.traits_hash import compute_traits_hash
@@ -129,6 +130,16 @@ async def extract(request: Request, user: CurrentUser, session: DbSession) -> Ex
 
     if outcome is None:
         return ExtractOut(status="queued")
+
+    # S7-B6: compilation follows extraction automatically. Gated on
+    # `outcome.changed` on purpose — an all-`keep` run leaves traits_hash
+    # byte-identical, so the existing snapshot is still an accurate persona and
+    # recompiling would burn an AI call to produce the same thing with a new
+    # version number. The staleness rule and this trigger read the SAME hash,
+    # so they can never disagree about whether a rebuild is owed.
+    if outcome.changed:
+        start_compile(request.app, user.id)
+
     return ExtractOut(
         status="done", kept=outcome.kept, updated=outcome.updated,
         retracted=outcome.retracted, added=outcome.added,

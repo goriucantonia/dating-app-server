@@ -22,6 +22,7 @@ from app.logging_setup import log_event, setup_logging
 from app.reconcile import reconcile
 from app.routers import auth as auth_router
 from app.routers import me as me_router
+from app.routers import persona as persona_router
 from app.routers import questions as questions_router
 from app.routers import traits as traits_router
 
@@ -69,6 +70,7 @@ app.include_router(auth_router.router)
 app.include_router(me_router.router)
 app.include_router(questions_router.router)
 app.include_router(traits_router.router)
+app.include_router(persona_router.router)
 
 app.add_middleware(
     CORSMiddleware,
