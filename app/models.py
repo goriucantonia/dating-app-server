@@ -404,3 +404,62 @@ class DateMessage(Base):
     provider: Mapped[str | None] = mapped_column(Text)
     model_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()
+
+
+# --- Step 12: judging and scores (migration 0007) --------------------------
+
+
+class DateEvaluation(Base):
+    """One row per judged date. `date_id` is the PRIMARY KEY, which is what
+    makes the judge pass idempotent: a relaunched pipeline that tries to judge
+    an already-judged date collides instead of quietly scoring it twice.
+
+    `criteria` (what the model said) and `date_score` (what the code computed)
+    are both stored, deliberately. Either one alone is unauditable — see
+    migration 0007."""
+
+    __tablename__ = "date_evaluations"
+
+    date_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dates.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    criteria: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    clicked: Mapped[list] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    clashes: Mapped[list] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    per_peer: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    verdict: Mapped[str] = mapped_column(Text, nullable=False)
+    date_score: Mapped[float] = mapped_column(REAL, nullable=False)
+    is_partial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    judge_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    judge_model: Mapped[str] = mapped_column(Text, nullable=False)
+    rubric_version: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CandidateScore(Base):
+    """The per-candidate number, aggregated in code from the date scores.
+
+    `dates_completed` and `dates_incomplete` sit beside `final_score` so the
+    weighting is checkable by hand: an incomplete-but-judged date counts half
+    (date_simulation.md, locked #3), and you cannot verify that from the score
+    alone."""
+
+    __tablename__ = "candidate_scores"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    candidate_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    final_score: Mapped[float] = mapped_column(REAL, nullable=False)
+    dates_completed: Mapped[int] = mapped_column(Integer, nullable=False)
+    dates_incomplete: Mapped[int] = mapped_column(Integer, nullable=False)

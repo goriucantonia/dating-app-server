@@ -934,24 +934,60 @@ async def _simulate(
     if completed == 0 and total_messages == 0:
         raise AIError("every date failed before its first line", task=DATE_TASK)
 
-    # Step 12 inserts judging BEFORE this transition and drives `complete`
-    # itself (S12-B10). Until it exists, the honest state is "the dates ran and
-    # nothing has been scored yet" — said out loud in the progress stage rather
-    # than left as a silent gap, and NOT left sitting in `simulating`, which
-    # would spin a progress bar over finished work.
+    # S12-B10: judging happens BEFORE the `complete` transition, because
+    # `complete` is the word the UI uses to mean "there are results to read".
+    # An analysis that flipped to complete and then scored would show a results
+    # screen with no scores on it for a minute.
+    #
+    # Imported here rather than at module scope: judging imports this module
+    # for the judgeable-message threshold, and the pipeline is the only place
+    # that needs the judge.
+    from app.judging import judge_analysis
+
+    await _progress(
+        session, analysis, "judging",
+        f"{completed + incomplete} dates ran. Scoring them now…",
+        dates_complete=completed, dates_incomplete=incomplete,
+    )
+    try:
+        finals = await judge_analysis(session, router, analysis.id, analysis.user_id)
+    except Exception as exc:  # noqa: BLE001
+        # A judge that cannot run must not throw away six finished dates. The
+        # analysis lands `complete` with its transcripts readable and says
+        # plainly that the scores are missing — which is a much better place to
+        # be than `failed` with everything hidden behind it.
+        analysis.status = "complete"
+        await session.commit()
+        await _progress(
+            session, analysis, "judging_failed",
+            "The dates ran, but scoring them didn't finish. The transcripts "
+            "are safe and you can read them.",
+            dates_complete=completed, dates_incomplete=incomplete,
+            judged=False, error=f"{type(exc).__name__}: {exc}"[:500],
+        )
+        log_event(
+            logger, "analysis_status", level=logging.ERROR,
+            analysis_id=str(analysis.id), status="complete",
+            reason="judging_failed_dates_kept",
+            error=f"{type(exc).__name__}: {exc}"[:2000],
+        )
+        return
+
     analysis.status = "complete"
     await session.commit()
     await _progress(
-        session, analysis, "dates_finished",
-        f"{completed + incomplete} dates ran. Scoring them arrives in the next "
-        "build step.",
-        dates_complete=completed, dates_incomplete=incomplete, judged=False,
+        session, analysis, "done",
+        f"{completed + incomplete} dates ran and {len(finals)} "
+        f"{'person was' if len(finals) == 1 else 'people were'} scored.",
+        dates_complete=completed, dates_incomplete=incomplete,
+        judged=True, candidates_scored=len(finals),
     )
     log_event(
         logger, "analysis_status", analysis_id=str(analysis.id),
-        status="complete", reason="all_dates_finished",
+        status="complete", reason="all_dates_judged",
         dates_complete=completed, dates_incomplete=incomplete,
-        messages=total_messages,
+        messages=total_messages, candidates_scored=len(finals),
+        final_scores={str(k): round(v, 2) for k, v in finals.items()},
     )
 
 

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.errors import ApiError
 from app.logging_setup import log_event
 from app.matching import start_and_run
-from app.models import Analysis, AnalysisCandidate, Trait, User
+from app.models import Analysis, AnalysisCandidate, CandidateScore, Trait, User
 from app.security import CurrentUser, DbSession
 from app.users import compute_age
 
@@ -59,6 +59,13 @@ class CandidateOut(BaseModel):
     shared_interests: list[str]
     reason_summary: str
     snapshot_id: str
+    # S12: the score, once the dates have been judged. Null until then, and
+    # null is DIFFERENT from zero — every date with this person may have failed
+    # too early to judge, and 0.0 would say "they were terrible together" about
+    # an evening that never happened.
+    final_score: float | None = None
+    dates_completed: int | None = None
+    dates_incomplete: int | None = None
 
 
 class AnalysisOut(BaseModel):
@@ -88,6 +95,17 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
         )
     ).all()
 
+    scores = {
+        row.candidate_user_id: row
+        for row in (
+            await session.execute(
+                select(CandidateScore).where(
+                    CandidateScore.analysis_id == analysis.id
+                )
+            )
+        ).scalars()
+    }
+
     # One query for every candidate's labels rather than one per card.
     labels: dict[uuid.UUID, dict[str, list[str]]] = {}
     if rows:
@@ -115,6 +133,21 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
                 compatibility=float(c.compatibility),
                 shared_interests=list(c.shared_interests or []),
                 reason_summary=c.reason_summary, snapshot_id=str(c.snapshot_id),
+                final_score=(
+                    float(scores[c.candidate_user_id].final_score)
+                    if c.candidate_user_id in scores
+                    else None
+                ),
+                dates_completed=(
+                    scores[c.candidate_user_id].dates_completed
+                    if c.candidate_user_id in scores
+                    else None
+                ),
+                dates_incomplete=(
+                    scores[c.candidate_user_id].dates_incomplete
+                    if c.candidate_user_id in scores
+                    else None
+                ),
             )
             for c, u in rows
         ],

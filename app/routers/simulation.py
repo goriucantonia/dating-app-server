@@ -31,13 +31,32 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.errors import ApiError
+from app.judging import is_judgeable
 from app.logging_setup import log_event
-from app.models import Analysis, DateMessage, SimulatedDate, User
+from app.models import Analysis, DateEvaluation, DateMessage, SimulatedDate, User
 from app.security import CurrentUser, DbSession
 from app.simulation import start_pipeline
 
 router = APIRouter(tags=["simulation"])
 logger = logging.getLogger("app.simulation")
+
+
+class EvaluationOut(BaseModel):
+    """What the judge found (S12). `criteria` and `date_score` are BOTH here,
+    deliberately: the score is computed in code from the criteria, and shipping
+    only one of them would make the arithmetic unverifiable by the person whose
+    date it was."""
+
+    criteria: dict
+    date_score: float
+    is_partial: bool
+    clicked_subjects: list
+    clashes: list
+    per_peer_summary: dict
+    verdict_summary: str
+    judge_provider: str
+    judge_model: str
+    rubric_version: str
 
 
 class DateOut(BaseModel):
@@ -52,6 +71,12 @@ class DateOut(BaseModel):
     anchored_in_interest: str
     message_count: int
     error: str | None
+    evaluation: EvaluationOut | None = None
+    # Stated on the wire rather than re-derived by every client (S12-B7, AC4).
+    # "This date was too short to score" is a thing the results screen has to
+    # say out loud, and a client recomputing the 10-message rule is a client
+    # that can disagree with the server about someone's score.
+    excluded_from_score: bool = False
 
 
 class TranscriptMessageOut(BaseModel):
@@ -76,6 +101,18 @@ class TranscriptOut(BaseModel):
     candidate_display_name: str
     schema_version: str
     messages: list[TranscriptMessageOut]
+
+
+def _evaluation_out(row: DateEvaluation | None) -> EvaluationOut | None:
+    if row is None:
+        return None
+    return EvaluationOut(
+        criteria=row.criteria, date_score=float(row.date_score),
+        is_partial=row.is_partial, clicked_subjects=list(row.clicked or []),
+        clashes=list(row.clashes or []), per_peer_summary=dict(row.per_peer or {}),
+        verdict_summary=row.verdict, judge_provider=row.judge_provider,
+        judge_model=row.judge_model, rubric_version=row.rubric_version,
+    )
 
 
 async def _owned_analysis(session, user_id: uuid.UUID, raw_id: str) -> Analysis:
@@ -163,6 +200,17 @@ async def list_dates(
             ).all()
         )
 
+    evaluations = {
+        e.date_id: e
+        for e in (
+            await session.execute(
+                select(DateEvaluation).where(
+                    DateEvaluation.date_id.in_([d.id for d, _ in rows])
+                )
+            )
+        ).scalars()
+    } if rows else {}
+
     return {
         "analysis_id": str(analysis.id),
         "status": analysis.status,
@@ -180,6 +228,11 @@ async def list_dates(
                 anchored_in_interest=d.scenario.get("anchored_in_interest", ""),
                 message_count=counts[d.id],
                 error=d.error,
+                evaluation=_evaluation_out(evaluations.get(d.id)),
+                excluded_from_score=(
+                    d.status in ("complete", "incomplete", "failed")
+                    and not is_judgeable(d.status, counts[d.id])
+                ),
             ).model_dump()
             for d, u in rows
         ],
