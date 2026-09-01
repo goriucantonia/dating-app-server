@@ -124,10 +124,10 @@ Chat consumes `DateDigest` only — it never reads raw `date_messages`.
 
 | Endpoint | Behavior |
 |---|---|
-| `POST /analyses/{id}/simulate` | Start the pipeline (auto-chained after matching by default; explicit endpoint kept for retry). |
+| `POST /analyses/{id}/simulate` | Start the pipeline (auto-chained after matching by default; explicit endpoint kept for retry). **Revised 2026-09-01 (Step 13):** also accepted on a `failed` analysis that got as far as having candidates — the pipeline resumes from its checkpointed rows (finished dates are no-ops on re-run), which is what makes the UI's "picks up where it stopped" true. A `failed` analysis with NO candidates died in matching; there is nothing to resume, and the 409 says to start a new one. Logged as `simulation_requested … resumed_after_failure: true` with the stage it died at. |
 | `GET /analyses/{id}` | (matching module's endpoint) now also carries `progress` and, when done, scores. |
-| `GET /analyses/{id}/dates` | All dates with status + evaluations. |
-| `GET /dates/{id}/transcript` | Messages incl. `state` metadata and environment rows — feeds the transcript viewer. |
+| `GET /analyses/{id}/dates` | All dates with status + evaluations. **Since 2026-09-01 (Step 13)** each date also carries `ended_by` (`mutual_wants_to_end` / `cap` / null) computed by the SAME `ended_by()` rule the loop used to stop it — the UI says how a date ended, it never re-derives it. |
+| `GET /dates/{id}/transcript` | Messages incl. `state` metadata and environment rows — feeds the transcript viewer. **Since 2026-09-01 (Step 13)** also `analysis_id` (so the viewer watches the one analysis poller for "other dates still running") and `ended_by`. |
 
 ## 6. Technical decisions (trades named)
 

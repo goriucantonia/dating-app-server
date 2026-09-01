@@ -936,11 +936,21 @@ async def _simulate(
     ).scalar_one()
 
     if analysis.status != "simulating":
+        resumed_from_failure = analysis.status == "failed"
         analysis.status = "simulating"
+        # A retry after `failed` (S13-U5) must not carry the old error text
+        # into its new life: a `complete` analysis still saying "openrouter
+        # error 400" on the wire would be the log reconstruction test (§7)
+        # failing in the other direction — an error that never happened to
+        # THIS run. The failure itself is not lost; the previous
+        # `analysis_status … failed` line and the `simulation_requested …
+        # previous_error` line both keep it.
+        analysis.error = None
         await session.commit()
         log_event(
             logger, "analysis_status", analysis_id=str(analysis.id),
-            status="simulating", reason="simulation_started",
+            status="simulating",
+            reason="resumed_after_failure" if resumed_from_failure else "simulation_started",
         )
 
     await _progress(
