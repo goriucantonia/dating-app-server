@@ -59,7 +59,10 @@ class OpenRouterProvider:
             )
         return self._http
 
-    async def _chat(self, payload: dict, *, task: str, model: str) -> dict:
+    async def _chat(
+        self, payload: dict, *, task: str, model: str,
+        sent_native_schema: bool = False,
+    ) -> dict:
         http = self._http_or_raise(task=task, model=model)
         kw = {"task": task, "provider": self.name, "model": model}
         try:
@@ -77,9 +80,42 @@ class OpenRouterProvider:
         if resp.status_code == 403:
             raise RefusedError(f"openrouter moderation refusal: {resp.text[:300]}", **kw)
         if resp.status_code == 400 and "response_format" in resp.text:
+            # Explicit: this model really does reject native schemas. Remember
+            # it so we stop paying for the doomed attempt.
             self._no_native_models.add(model)
             raise NativeStructuredUnsupported(
                 f"model {model} rejects response_format json_schema", **kw
+            )
+        if resp.status_code == 400 and "Provider returned error" in resp.text:
+            # OpenRouter serves one model id from SEVERAL upstream providers and
+            # picks per request. This body is OpenRouter telling us the UPSTREAM
+            # failed — structurally different from OpenRouter rejecting our
+            # request, which carries its own message. Observed: `trait_extraction`
+            # 400ing via AtlasCloud repeatedly while the SAME model, same
+            # parameters, served other tasks fine seconds apart, and while plain
+            # calls to that same upstream succeeded.
+            #
+            # So it is TRANSIENT, and transient is what the retry ladder is for:
+            # a retry is a fresh routing draw and usually lands somewhere else.
+            # Treating it as fatal made a working pipeline look broken.
+            raise TransientAIError(
+                f"openrouter upstream provider error (retryable): {resp.text[:200]}",
+                **kw,
+            )
+        if resp.status_code == 400 and sent_native_schema:
+            # A bare 400 while we had a schema attached. OpenRouter routes one
+            # model across several upstream providers, and they do not all
+            # implement structured output to the same standard — observed with
+            # `trait_extraction.v1` (the largest schema) 400ing on one upstream
+            # while the SAME model served smaller schemas fine minutes apart.
+            # Deliberately NOT added to _no_native_models: this is an upstream
+            # roulette result, not a property of the model, so blacklisting it
+            # for the process would downgrade every later call on the evidence
+            # of one bad draw. Fall back for this call only.
+            raise NativeStructuredUnsupported(
+                f"openrouter 400 while sending a native schema "
+                f"(upstream provider likely rejected it): {resp.text[:200]}",
+                **kw,
             )
         if resp.status_code != 200:
             raise AIError(
@@ -180,6 +216,21 @@ class OpenRouterProvider:
                     "schema": schema.json_schema,
                 },
             }
-        data = await self._chat(payload, task=req.task, model=req.model)
+            # OpenRouter serves one model id from SEVERAL upstream providers and
+            # picks per request. They do not all implement structured output,
+            # and one that doesn't answers a schema-carrying request with a bare
+            # `400 bad request` — which looks like our bug and is not. Observed:
+            # `trait_extraction.v1` 400ing via AtlasCloud while the SAME model
+            # served `persona_digest.v1` fine seconds apart.
+            #
+            # `require_parameters` tells OpenRouter to route only to providers
+            # that support every parameter we sent, which is the difference
+            # between "this model supports schemas" and "the provider we happened
+            # to be routed to does".
+            payload["provider"] = {"require_parameters": True}
+        data = await self._chat(
+            payload, task=req.task, model=req.model,
+            sent_native_schema=not use_prompt,
+        )
         text, _ = self._extract_text(data, kw=kw)
         return text

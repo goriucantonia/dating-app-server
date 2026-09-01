@@ -44,10 +44,28 @@ ai:
     # extraction path already presses against at 20 requests/minute.
     # The REMAINING free-model-of-choice slots stay deliberately unfilled.
     dispute_followups:   { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
-    trait_extraction:    { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
+    # trait_extraction is on a DIFFERENT model from the rest, deliberately
+    # (2026-09-01, Step 7). dots-3-note-preview began answering every
+    # trait_extraction request with an upstream `400 bad request` via
+    # AtlasCloud, reproducibly, across three retries — while serving
+    # persona_digest and chat_reply fine on the same key seconds apart, and
+    # while plain calls to that same upstream succeeded. Per-task routing
+    # exists so one task's broken provider does not force a global change.
+    # nemotron-3-super is the other model that PASSED the Step 6 shootout
+    # against this exact schema (19s). Its known cost: it writes full
+    # sentences where a label should be short, and over-splits one answer
+    # into several traits — a fidelity-gate concern (Step 8), not a
+    # correctness one.
+    trait_extraction:    { provider: openrouter, model: "nvidia/nemotron-3-super-120b-a12b:free" }
     persona_digest:      { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
     date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
     judging:             { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
-    chat_reply:          { provider: openrouter, model: "free-model-of-choice" }
+    # FILLED 2026-09-01 (Step 7): calibration chat — "meet your AI self" —
+    # runs on chat_reply, so S7-B8 and AC7 cannot be witnessed with the slot
+    # empty. Same measured model as the rest; the owner's standing direction
+    # is OpenRouter for everything for now. scenario_generation,
+    # date_simulation and chat_compaction belong to Steps 11 and 14 and stay
+    # unfilled until those steps need them.
+    chat_reply:          { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }
