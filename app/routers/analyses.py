@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.errors import ApiError
 from app.logging_setup import log_event
 from app.matching import start_and_run
-from app.models import Analysis, AnalysisCandidate, User
+from app.models import Analysis, AnalysisCandidate, Trait, User
 from app.security import CurrentUser, DbSession
 from app.users import compute_age
 
@@ -43,6 +43,15 @@ class CandidateOut(BaseModel):
     candidate_user_id: str
     display_name: str
     age: int
+    # S10-B1. `is_demo` must be present WHEREVER a user is rendered
+    # (communication_protocol.md §6) — a demo profile that loses its label
+    # somewhere in the UI is a person the user thinks is real.
+    is_demo: bool
+    # Trait LABELS only, grouped by category. Descriptions stay private to the
+    # candidate: they are written about someone by an AI reading their intimate
+    # answers, and showing them to a stranger is a different product. This is a
+    # WIRE rule, not a UI convention — the probe checks the raw body.
+    trait_labels: dict[str, list[str]]
     rank: int
     fit_forward: float
     fit_backward: float
@@ -73,6 +82,20 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
             .order_by(AnalysisCandidate.rank)
         )
     ).all()
+
+    # One query for every candidate's labels rather than one per card.
+    labels: dict[uuid.UUID, dict[str, list[str]]] = {}
+    if rows:
+        for t in (
+            await session.execute(
+                select(Trait).where(
+                    Trait.user_id.in_([c.candidate_user_id for c, _ in rows]),
+                    Trait.status != "retracted",
+                ).order_by(Trait.category, Trait.label)
+            )
+        ).scalars():
+            labels.setdefault(t.user_id, {}).setdefault(t.category, []).append(t.label)
+
     return AnalysisOut(
         id=str(analysis.id), status=analysis.status,
         pool_status=analysis.pool_status, error=analysis.error,
@@ -81,6 +104,7 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
             CandidateOut(
                 candidate_user_id=str(c.candidate_user_id),
                 display_name=u.display_name, age=compute_age(u.birth_date),
+                is_demo=u.is_demo, trait_labels=labels.get(c.candidate_user_id, {}),
                 rank=c.rank, fit_forward=float(c.fit_forward),
                 fit_backward=float(c.fit_backward),
                 compatibility=float(c.compatibility),
