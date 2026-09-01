@@ -19,12 +19,13 @@ from app.config import get_settings, load_ai_config
 from app.db import check_connection, create_engine
 from app.errors import ApiError, register_error_handlers
 from app.logging_setup import log_event, setup_logging
-from app.reconcile import reconcile
+from app.reconcile import reconcile, relaunch_stuck_analyses
 from app.routers import analyses as analyses_router
 from app.routers import auth as auth_router
 from app.routers import me as me_router
 from app.routers import persona as persona_router
 from app.routers import questions as questions_router
+from app.routers import simulation as simulation_router
 from app.routers import traits as traits_router
 
 logger = logging.getLogger("app.main")
@@ -59,6 +60,10 @@ async def lifespan(app: FastAPI):
     app.state.engine = create_engine(settings.database_url)
     # Startup reconciliation, step 1: seeded questions (§12 — no trust bypasses).
     await reconcile(app.state.engine)
+    # Step 3 of the same pass (S11-B9): an analysis left mid-flight by a
+    # restart is picked up again. This is the other half of the no-Celery
+    # trade — the process-local task is lost, the work is not.
+    await relaunch_stuck_analyses(app)
     yield
     await app.state.engine.dispose()
 
@@ -73,6 +78,7 @@ app.include_router(questions_router.router)
 app.include_router(traits_router.router)
 app.include_router(persona_router.router)
 app.include_router(analyses_router.router)
+app.include_router(simulation_router.router)
 
 app.add_middleware(
     CORSMiddleware,

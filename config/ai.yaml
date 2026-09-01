@@ -56,9 +56,31 @@ ai:
     # sentences where a label should be short, and over-splits one answer
     # into several traits — a fidelity-gate concern (Step 8), not a
     # correctness one.
-    trait_extraction:    { provider: openrouter, model: "nvidia/nemotron-3-super-120b-a12b:free" }
+    #
+    # UNEXPLAINED, 2026-09-01 (Step 11): this line was found in the working
+    # tree pointing at dots-3-note-preview, uncommitted and undated, directly
+    # under the paragraph above explaining why it is NOT dots. Nothing records
+    # whether that was a re-measurement or a slip, and §23 says a revision
+    # names its new information and its date. It is left as found rather than
+    # reverted on a guess: dots served four trait_extraction calls cleanly on
+    # 2026-09-01, so it is not currently broken for this task. The owner should
+    # confirm which model is meant. Nothing in Step 11 depends on it.
+    trait_extraction:    { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     persona_digest:      { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
-    scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
+    # FILLED 2026-09-01 (Step 11): scenario generation is the first call of
+    # every simulation, so with the slot empty S11-B2/B3 and Step 11's whole
+    # acceptance list are unreachable — no scenario, no dates, no transcript.
+    # Same model as the rest for the same measured reason: of the 18 free
+    # OpenRouter models only four advertise structured_outputs, and of those
+    # only dots-3-note-preview and nemotron-3-super passed the Step 6 shootout
+    # against a real schema. dots is used here rather than nemotron because
+    # this schema is a NESTED one (two settings, each with an array of 4-6
+    # events) and dots produced the shorter, better-shaped output of the two.
+    # If it starts 400ing the way it did for trait_extraction (D-008), move
+    # THIS line — that is what per-task routing is for.
+    # Provisional, like every pin above it: the tier choice belongs to the
+    # quota-fit gate, which this step opens.
+    scenario_generation: { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     # FILLED 2026-09-01 (Step 8): S8-G1, the fidelity-transfer gate, has to be
     # tested against the ACTUAL model dates will run on — a gate closed on a
     # different model than production uses proves nothing. Deliberately the

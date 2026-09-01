@@ -8,3 +8,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 build/
+
+# Probe run output redirected from a shell (e.g. `> match_out.txt`). Scratch,
+# never a source file — and D-009 is the story of two probe runs sharing one.
+match_out.txt

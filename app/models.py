@@ -290,8 +290,10 @@ class Analysis(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False)
     pool_status: Mapped[str | None] = mapped_column(Text)
-    # Reserved for Step 11 — see migration 0005.
-    progress: Mapped[dict | None] = mapped_column(JSONB)
+    # Step 11's pipeline progress. `none_as_null=True` for the same reason as
+    # `date_messages.state` (D-011): a NULL here means "no simulation has run",
+    # and the JSON value `null` is not that.
+    progress: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _created_at()
@@ -322,4 +324,83 @@ class AnalysisCandidate(Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
     )
+    created_at: Mapped[datetime] = _created_at()
+
+
+# --- Step 11: dates and transcripts (migration 0006) -----------------------
+
+
+class SimulatedDate(Base):
+    """One simulated date. Named `SimulatedDate` rather than `Date` because
+    `Date` is already a SQLAlchemy type in this file — a mirror class that
+    shadows the column type it uses is a trap for the next reader.
+
+    Both snapshot columns are frozen references with NO cascade, for the same
+    reason `analysis_candidates.snapshot_id` is: a transcript must always be
+    able to name the persona version that spoke it (date_simulation.md §3).
+    """
+
+    __tablename__ = "dates"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','running','complete','incomplete','failed')"
+        ),
+        UniqueConstraint("analysis_id", "candidate_user_id", "ordinal"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("analyses.id", ondelete="CASCADE"), nullable=False
+    )
+    candidate_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    scenario: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    user_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
+    )
+    candidate_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
+    )
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class DateMessage(Base):
+    """The checkpoint row. `UNIQUE (date_id, seq)` is the invariant that makes
+    resume idempotent: a re-launched date cannot write a second message at a
+    seq it already wrote.
+
+    `state` is NULL for `environment` rows — an event has no inner life, and a
+    zeroed state block would read as an agent who felt nothing.
+    """
+
+    __tablename__ = "date_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "speaker IN ('user_agent','candidate_agent','environment')"
+        ),
+        UniqueConstraint("date_id", "seq"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    date_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("dates.id", ondelete="CASCADE"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    speaker: Mapped[str] = mapped_column(Text, nullable=False)
+    reply: Mapped[str] = mapped_column(Text, nullable=False)
+    # `none_as_null=True` is load-bearing, not tidiness (D-011). Without it
+    # SQLAlchemy writes Python `None` into a JSONB column as the JSON value
+    # `null`, which is NOT SQL NULL: the row then fails `state IS NULL` while
+    # looking null in every JSON payload and every Python read. The migration
+    # and date_simulation.md §3 both say environment rows carry NULL here, and
+    # Step 12's judging will filter spoken turns on exactly that.
+    state: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    provider: Mapped[str | None] = mapped_column(Text)
+    model_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()

@@ -17,7 +17,12 @@ from sqlalchemy.pool import NullPool
 config = context.config
 config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
-from app.models import Base  # noqa: E402 — alembic loads config first by design
+# Imported after the config lines above by design: alembic must set the URL
+# before app.models pulls the engine machinery in. The suppression comment that
+# used to sit here named E402, which this project does not enable — so the
+# suppression was itself the only lint error in the repo (RUF100). Removed
+# 2026-09-01; the reason it documented is kept here, where it belongs.
+from app.models import Base
 
 target_metadata = Base.metadata
 

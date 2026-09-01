@@ -67,6 +67,11 @@ class AnalysisOut(BaseModel):
     pool_status: str | None
     error: str | None
     created_at: datetime
+    # S11-B10. The simulation pipeline's real stage, in the sentence the UI
+    # shows. It rides on THIS payload rather than a second endpoint because
+    # the analysis row is the one object the UI polls for the whole journey —
+    # a separate progress endpoint would mean two loops and two truths.
+    progress: dict | None = None
     candidates: list[CandidateOut] = []
     # The plain sentence the UI shows when there is nobody. Server-side so the
     # honest-empty-pool wording cannot drift between clients (§26).
@@ -99,7 +104,7 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
     return AnalysisOut(
         id=str(analysis.id), status=analysis.status,
         pool_status=analysis.pool_status, error=analysis.error,
-        created_at=analysis.created_at,
+        created_at=analysis.created_at, progress=analysis.progress,
         candidates=[
             CandidateOut(
                 candidate_user_id=str(c.candidate_user_id),
