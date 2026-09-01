@@ -69,7 +69,11 @@ class DateOut(BaseModel):
     description: str
     sensory_details: str
     anchored_in_interest: str
+    # The whole transcript, environment rows included.
     message_count: int
+    # What the two of them actually SAID — the number the judging threshold
+    # reads, and the one to show next to "too short to score".
+    turn_count: int
     error: str | None
     evaluation: EvaluationOut | None = None
     # Stated on the wire rather than re-derived by every client (S12-B7, AC4).
@@ -190,15 +194,24 @@ async def list_dates(
         )
     ).all()
 
+    # Two counts, because they mean different things and the difference is
+    # load-bearing (revised 2026-09-01). `message_count` is how long the
+    # transcript is; `turn_count` is how much was SAID, and the judging
+    # threshold reads the second one — an environment row is scenery, not a
+    # person talking. Shipping only the first would leave a client unable to
+    # explain why a 10-row date was excluded.
     counts: dict[uuid.UUID, int] = {}
+    turns: dict[uuid.UUID, int] = {}
     for d, _ in rows:
-        counts[d.id] = len(
+        speakers = list(
             (
                 await session.execute(
-                    select(DateMessage.id).where(DateMessage.date_id == d.id)
+                    select(DateMessage.speaker).where(DateMessage.date_id == d.id)
                 )
-            ).all()
+            ).scalars()
         )
+        counts[d.id] = len(speakers)
+        turns[d.id] = sum(1 for sp in speakers if sp != "environment")
 
     evaluations = {
         e.date_id: e
@@ -227,11 +240,12 @@ async def list_dates(
                 sensory_details=d.scenario.get("sensory_details", ""),
                 anchored_in_interest=d.scenario.get("anchored_in_interest", ""),
                 message_count=counts[d.id],
+                turn_count=turns[d.id],
                 error=d.error,
                 evaluation=_evaluation_out(evaluations.get(d.id)),
                 excluded_from_score=(
                     d.status in ("complete", "incomplete", "failed")
-                    and not is_judgeable(d.status, counts[d.id])
+                    and not is_judgeable(d.status, turns[d.id])
                 ),
             ).model_dump()
             for d, u in rows

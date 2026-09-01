@@ -46,6 +46,7 @@ from app.ai.base import AIError, GenRequest, Message
 from app.ai.routing import TaskRouter
 from app.ai.structured import guarded_structured_call
 from app.logging_setup import log_event
+from app.matching import MAX_CANDIDATES
 from app.models import (
     Analysis,
     AnalysisCandidate,
@@ -96,9 +97,17 @@ TURN_CAP = 16
 # full pool drops from ~177 model calls to ~90) and faster, at the price of a
 # noisier number.
 DATES_PER_CANDIDATE = SETTINGS_PER_CANDIDATE
-# Matching caps the pool at 3, so 3 is what falls out — but a cap that only
-# holds because another module happens to be small is not a cap.
-MAX_DATES_PER_ANALYSIS = 3
+# DERIVED, 2026-09-01, and it used to be the literal 3. The old comment said a
+# cap that only holds because another module is small is not a cap — true, but
+# a cap written as a literal beside a knob is worse: raising
+# SETTINGS_PER_CANDIDATE to 2 would have produced 3 candidates wanting 6 dates
+# against a ceiling of 3, and `ensure_dates` would have stopped after the
+# second candidate and given the third NONE. Silently, with a log line nobody
+# was looking for.
+#
+# Now the ceiling follows the knob. `MAX_CANDIDATES` is matching's own cap on
+# pool size, imported rather than repeated for exactly the reason above.
+MAX_DATES_PER_ANALYSIS = MAX_CANDIDATES * DATES_PER_CANDIDATE
 EVENT_PROBABILITY = 0.15
 MAX_EVENTS_PER_DATE = 3
 # Derived, never set by hand: the longest a transcript can get. Every turn plus
@@ -106,18 +115,30 @@ MAX_EVENTS_PER_DATE = 3
 MAX_MESSAGES_PER_DATE = TURN_CAP + MAX_EVENTS_PER_DATE
 # One closing exchange = one line each, once both of them want to wrap up.
 CLOSING_TURNS = 2
-# An `incomplete` date with this many messages is still worth judging
+# An `incomplete` date with this many AGENT TURNS is still worth judging
 # (date_simulation.md, locked #3). Step 12 owns the policy; the constant lives
 # here with the loop that produces the incomplete dates.
 #
-# LEFT AT 10 through the 2026-09-01 turn-cap change, deliberately, but its
-# MEANING moved and that is worth knowing. Against a 30-row date it was a
-# third; against a date of at most 19 rows it is closer to two-thirds. So it
-# now excludes MORE, not less — the safe direction, since the failure it
-# guards against is scoring an evening too thin to have been one. Revisit it
-# if too many genuinely half-finished dates start being thrown away; do not
-# revisit it to make the numbers look better.
-JUDGEABLE_MIN_MESSAGES = 10
+# REVISED 2026-09-01 (owner decision): the threshold counts TURNS, not rows.
+# It used to count rows, and that was a leftover from the days when the date
+# cap counted rows too. Once the cap moved to turns, the two rules disagreed
+# about what a date is made of, and the disagreement was reachable:
+#
+#     7 turns + 3 events = 10 rows  ->  judged
+#     9 turns + 0 events =  9 rows  ->  excluded
+#
+# The date with LESS conversation in it got scored, purely because the dice
+# put events in it. Environment rows are scenery; nobody said anything. This
+# now reads the same `turn_count` the cap does, so the two cannot drift again.
+#
+# The value stays 10, and the change actually RESTORES its original stated
+# meaning — "roughly five each" was always a claim about turns. Worth knowing
+# that against a 16-turn cap this is a high bar (a date must reach ~62% of a
+# full evening to be scored at all), and it errs towards throwing a thin date
+# away rather than scoring an evening too slight to have been one. Revisit the
+# NUMBER if genuinely half-finished dates start being discarded; do not revisit
+# it to make the scores look better.
+JUDGEABLE_MIN_TURNS = 10
 
 SCENARIO_MAX_TOKENS = 4096
 TURN_MAX_TOKENS = 2048
@@ -718,7 +739,8 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
                 status="incomplete", ended_by="turn_gave_up", failed_at_seq=seq,
                 speaker=speaker, provider=provider.name, model=model,
                 messages=len(rows),
-                judgeable=len(rows) >= JUDGEABLE_MIN_MESSAGES,
+                judgeable=turn_count(views) >= JUDGEABLE_MIN_TURNS,
+                turns=turn_count(views),
                 error=date.error,
             )
             return "incomplete"

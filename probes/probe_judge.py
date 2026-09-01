@@ -124,7 +124,7 @@ async def main() -> int:
 
         evaluation = judged["evaluation"]
         print(f"  .. date {judged['date_id'][:8]} at '{judged['setting_name']}', "
-              f"{judged['message_count']} messages")
+              f"{judged['turn_count']} turns in {judged['message_count']} rows")
 
         # --- AC1 half two: the arithmetic, from the wire -------------------
         by_hand = recompute(evaluation["criteria"])
@@ -182,10 +182,11 @@ async def main() -> int:
         ]
         for d in excluded:
             check(
-                f"a {d['message_count']}-message date is excluded and says so "
-                "on the wire, with no evaluation attached",
-                d["evaluation"] is None and d["message_count"] < 10,
-                f"status={d['status']}",
+                f"a {d['turn_count']}-turn date is excluded and says so on the "
+                "wire, with no evaluation attached",
+                d["evaluation"] is None and d["turn_count"] < 10,
+                f"status={d['status']}, {d['message_count']} rows of which "
+                f"{d['message_count'] - d['turn_count']} were events",
             )
 
     # --- AC1 half one: the same transcript judged twice --------------------

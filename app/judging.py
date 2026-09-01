@@ -20,10 +20,16 @@ building the prompt from labels only, in one function, rather than by everyone
 remembering.
 
 **The incomplete-date policy is one function with the boundary written down**
-(S12-B7, §14 names it as an accretion risk): at least 10 messages and an
+(S12-B7, §14 names it as an accretion risk): at least 10 AGENT TURNS and an
 incomplete date is judged and flagged partial; under 10 it is excluded from
-scoring entirely and shown as failed. Ten messages is roughly five each — below
+scoring entirely and shown as failed. Ten turns is roughly five each — below
 that there is not a date to judge, there is an opening.
+
+**Turns, not rows** (revised 2026-09-01). Environment rows are scenery: nobody
+said anything, and letting them pad the count meant a date with 7 turns and 3
+events was scored while one with 9 turns and no events was thrown away. The
+threshold reads the same `turn_count` the date cap does, so the two cannot
+drift apart again.
 """
 
 from __future__ import annotations
@@ -52,7 +58,7 @@ from app.schemas.judge_rubric import (
     JUDGE_SYSTEM_PROMPT,
     RUBRIC_VERSION,
 )
-from app.simulation import JUDGEABLE_MIN_MESSAGES
+from app.simulation import JUDGEABLE_MIN_TURNS, to_views, turn_count
 
 logger = logging.getLogger("app.judging")
 
@@ -100,18 +106,23 @@ def date_score(criteria: dict) -> float:
     )
 
 
-def is_judgeable(status: str, message_count: int) -> bool:
+def is_judgeable(status: str, turns: int) -> bool:
     """S12-B7, and the boundary is the point (§18).
 
     A `complete` date is always judged. An `incomplete` one is judged only if
-    it got at least 10 messages — roughly five each. Below that there is no
-    date to score, only an opening, and a number derived from it would look
-    exactly like a number derived from a real evening.
+    the pair took at least 10 TURNS between them — roughly five each. Below
+    that there is no date to score, only an opening, and a number derived from
+    it would look exactly like a number derived from a real evening.
+
+    `turns` counts what the agents SAID. It is not the row count: an
+    environment row is the world doing something, not a person talking, and
+    counting it here would let three lucky dice rolls promote a seven-turn
+    fragment over a nine-turn one.
     """
     if status == "complete":
         return True
     if status == "incomplete":
-        return message_count >= JUDGEABLE_MIN_MESSAGES
+        return turns >= JUDGEABLE_MIN_TURNS
     return False
 
 
@@ -245,15 +256,16 @@ async def judge_date(
             )
         ).scalars()
     )
-    if not is_judgeable(date.status, len(messages)):
+    turns = turn_count(to_views(messages))
+    if not is_judgeable(date.status, turns):
         # Logged rather than skipped silently: "this date was excluded from the
         # score" is a fact the results screen has to be able to state (AC4).
         log_event(
             logger, "date_not_judged", level=logging.WARNING,
             date_id=str(date.id), analysis_id=str(date.analysis_id),
-            status=date.status, messages=len(messages),
-            threshold=JUDGEABLE_MIN_MESSAGES,
-            reason="too few messages to be a date"
+            status=date.status, messages=len(messages), turns=turns,
+            threshold=JUDGEABLE_MIN_TURNS, counted="agent turns, not rows",
+            reason="too few turns to be a date"
             if date.status == "incomplete"
             else f"status is {date.status}",
         )
@@ -310,7 +322,7 @@ async def judge_date(
         logger, "date_judged", date_id=str(date.id),
         analysis_id=str(date.analysis_id), provider=provider.name, model=model,
         rubric_version=RUBRIC_VERSION, is_partial=partial,
-        messages=len(messages),
+        messages=len(messages), turns=turns,
         # The raw criteria AND the derived score, so the arithmetic is
         # checkable straight from the log without opening the database (§7).
         criteria=criteria, date_score=round(score, 2),

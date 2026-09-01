@@ -20,7 +20,7 @@ For a `matched` analysis: generate date scenarios per candidate, run the turn-by
   3. Persist the message row (checkpoint) **before** advancing the turn.
   4. **Event injection:** before each turn, roll p = 0.15 (max 3 events/date, never two in a row); on hit, insert an `environment` message drawn from the scenario's `possible_events`, which both agents see as context.
   5. **Natural ending:** when both agents' latest `wants_to_end` are true, run one final closing exchange and stop. Otherwise stop at the cap.
-- **Failure handling per turn (give-up ladder, §17):** resilience layer retries transient errors (3 attempts, backoff). Turn still failing → date marked `incomplete` at its last checkpointed message, pipeline moves to the next date. An `incomplete` date with ≥10 messages is still judged (flagged partial); under 10, it's excluded from scoring and shown as failed. The analysis never dies because one date did — it completes with whatever finished, and says so.
+- **Failure handling per turn (give-up ladder, §17):** resilience layer retries transient errors (3 attempts, backoff). Turn still failing → date marked `incomplete` at its last checkpointed message, pipeline moves to the next date. An `incomplete` date with ≥10 agent TURNS is still judged (flagged partial); under 10, it's excluded from scoring and shown as failed. *(Revised 2026-09-01, owner decision: this counted transcript rows until the date cap moved to turns, after which the two disagreed about what a date is made of — 7 turns plus 3 events scored while 9 quiet turns did not. Turns, both places, from one `turn_count`.)* The analysis never dies because one date did — it completes with whatever finished, and says so.
 - **Judge pipeline** (after all of a candidate's dates finish): per completed date, one structured call scoring fixed criteria; the **final number is computed in code**, not asked from the model:
   ```
   judge output (0-100 each): trait_alignment, conversational_flow,
@@ -144,7 +144,7 @@ Logging obligations (§7): every turn logs date_id/seq/provider/model/attempt/ou
 
 1. Caps: **1 date/candidate, max 3 per analysis, 16 agent TURNS per date** (all three REVISED 2026-09-01, owner decision — were 2/candidate, 6/analysis, and a 30-message cap that counted environment rows), events p=0.15 max 3 never consecutive and NOT charged against the turn cap, global concurrency 2. A transcript is therefore at most 19 rows. **The cost of the revision, named:** a candidate's score was the mean of two independent readings and is now a single one, so one odd evening or one wobbly judge call is no longer averaged down. Accepted for roughly half the model calls per analysis (~177 → ~90).
 2. Natural ending via mutual `wants_to_end`; hard cap otherwise.
-3. Checkpoint-per-message; resume semantics; incomplete-date policy (≥10 messages → judged as partial at 0.5 weight, else excluded).
+3. Checkpoint-per-message; resume semantics; incomplete-date policy (≥10 agent TURNS → judged as partial at 0.5 weight, else excluded; revised from rows 2026-09-01).
 4. `judge_rubric.v1` criteria and the code-side scoring formula, verbatim.
 5. Scenario generation contract incl. empty-intersection fallback.
 6. In-process tasks, sequential execution, polling.

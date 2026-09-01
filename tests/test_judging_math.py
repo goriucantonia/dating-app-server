@@ -7,7 +7,7 @@ a database, or a transcript — and the probe's job reduces to checking that the
 stored score matches what these functions say it should be.
 
 The boundaries get their own tests on purpose. `clash_severity` is the one
-criterion where high is bad, and the ten-message judging threshold is named in
+criterion where high is bad, and the ten-TURN judging threshold is named in
 `development_principles.md` §14 as an accretion risk. Both are exactly the kind
 of rule that survives a refactor in spirit and dies in arithmetic.
 """
@@ -21,7 +21,7 @@ from app.judging import (
     date_score,
     is_judgeable,
 )
-from app.simulation import JUDGEABLE_MIN_MESSAGES
+from app.simulation import JUDGEABLE_MIN_TURNS, MAX_EVENTS_PER_DATE
 
 
 def criteria(alignment=0, flow=0, engagement=0, clash=0) -> dict:
@@ -125,18 +125,42 @@ def test_no_judgeable_dates_is_None_and_never_zero():
 
 
 def test_a_complete_date_is_always_judged():
-    assert is_judgeable("complete", 30)
+    assert is_judgeable("complete", 16)
     # Even a short complete date: `complete` means it ENDED, by cap or by both
     # of them wanting to. A short real ending is a real date.
     assert is_judgeable("complete", 4)
 
 
-def test_the_ten_message_boundary_both_ways():
-    assert is_judgeable("incomplete", JUDGEABLE_MIN_MESSAGES) is True
-    assert is_judgeable("incomplete", JUDGEABLE_MIN_MESSAGES - 1) is False
-    assert JUDGEABLE_MIN_MESSAGES == 10
+def test_the_ten_turn_boundary_both_ways():
+    assert is_judgeable("incomplete", JUDGEABLE_MIN_TURNS) is True
+    assert is_judgeable("incomplete", JUDGEABLE_MIN_TURNS - 1) is False
+    assert JUDGEABLE_MIN_TURNS == 10
+
+
+def test_events_cannot_pad_a_thin_date_over_the_threshold():
+    """The reason this threshold counts TURNS (revised 2026-09-01).
+
+    While it counted rows, these two dates were treated in opposite ways —
+    and the one with LESS conversation in it was the one that got scored,
+    purely because the dice put events in it:
+
+        7 turns + 3 events = 10 rows  ->  judged
+        9 turns + 0 events =  9 rows  ->  excluded
+
+    Both are now decided on what was actually said. This test is written in
+    the shape of the bug rather than the shape of the rule, because the rule
+    reads fine either way and only the example shows the difference.
+    """
+    thin_but_eventful = 7
+    longer_but_quiet = 9
+    assert thin_but_eventful + MAX_EVENTS_PER_DATE >= JUDGEABLE_MIN_TURNS  # 10 ROWS
+    assert is_judgeable("incomplete", thin_but_eventful) is False
+    assert is_judgeable("incomplete", longer_but_quiet) is False
+    # ...and the one that genuinely reached ten turns is judged whether or not
+    # anything happened around them.
+    assert is_judgeable("incomplete", 10) is True
 
 
 def test_a_date_that_never_ran_is_not_judgeable():
     for status in ("pending", "running", "failed"):
-        assert is_judgeable(status, 30) is False, status
+        assert is_judgeable(status, 16) is False, status
