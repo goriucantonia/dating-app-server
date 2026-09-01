@@ -295,6 +295,11 @@ class Analysis(Base):
     # and the JSON value `null` is not that.
     progress: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     error: Mapped[str | None] = mapped_column(Text)
+    # How many people this analysis HAD when matching finished (S15-B3,
+    # migration 0009). A deleted candidate's row cascades away; this is what
+    # lets the survivor's screen say "one person removed their account"
+    # instead of silently showing two where there were three.
+    candidate_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _created_at()
 

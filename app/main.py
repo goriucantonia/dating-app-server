@@ -19,7 +19,7 @@ from app.config import get_settings, load_ai_config
 from app.db import check_connection, create_engine
 from app.errors import ApiError, register_error_handlers
 from app.logging_setup import log_event, setup_logging
-from app.reconcile import reconcile, relaunch_stuck_analyses
+from app.reconcile import run_full_pass
 from app.routers import analyses as analyses_router
 from app.routers import auth as auth_router
 from app.routers import chat as chat_router
@@ -59,12 +59,10 @@ async def lifespan(app: FastAPI):
     # Fails at startup on incoherent routing config, not mid-date (S2-B5).
     app.state.ai_router = TaskRouter(build_providers(ai_config), ai_config)
     app.state.engine = create_engine(settings.database_url)
-    # Startup reconciliation, step 1: seeded questions (§12 — no trust bypasses).
-    await reconcile(app.state.engine)
-    # Step 3 of the same pass (S11-B9): an analysis left mid-flight by a
-    # restart is picked up again. This is the other half of the no-Celery
-    # trade — the process-local task is lost, the work is not.
-    await relaunch_stuck_analyses(app)
+    # The four-step reconciliation pass (§12 — no trust bypasses): questions,
+    # demo profiles, stuck analyses, embedding-model consistency. Step 2's
+    # AI half runs in the background and reports through its own log lines.
+    await run_full_pass(app)
     yield
     await app.state.engine.dispose()
 

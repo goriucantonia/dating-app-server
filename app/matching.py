@@ -339,6 +339,7 @@ async def run_matching(
     if not await refresh_embeddings(session, router, me):
         analysis.status = "no_candidates"
         analysis.pool_status = "empty"
+        analysis.candidate_count = 0
         await session.commit()
         log_event(
             logger, "matching_done",
@@ -415,6 +416,9 @@ async def run_matching(
     else:
         analysis.status = "matched"
         analysis.pool_status = "full" if len(chosen) >= MAX_CANDIDATES else "partial"
+    # S15-B3: remembered here, because nothing else will once a candidate
+    # deletes their account and their row cascades away.
+    analysis.candidate_count = len(chosen)
     await session.commit()
 
     log_event(

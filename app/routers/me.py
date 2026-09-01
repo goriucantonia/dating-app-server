@@ -1,8 +1,8 @@
 """GET /me and PATCH /me (S4-B4) — profile fields, preferences, and the
 opt_in toggle.
 
-DELETE /me is deliberately NOT here (S4-B6): it belongs to Data Hygiene
-(Step 15), where its cascade is verified whole rather than grown piecemeal.
+DELETE /me arrived with Step 15 (S15-B1..B3), once the whole cascade graph
+existed to be verified — see `app/deletion.py`.
 
 Every A1 rule PATCH can touch is re-validated here with the same validators'
 semantics as registration; opt_in changes get their own log line (§8 — a flag
@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.deletion import delete_account
 from app.errors import ApiError
 from app.logging_setup import log_event
 from app.security import CurrentUser, DbSession
@@ -106,3 +107,23 @@ async def patch_me(payload: MePatch, user: CurrentUser, session: DbSession) -> U
     await session.commit()
     log_event(logger, "me_patched", user_id=str(user.id), fields=sorted(changes))
     return UserOut.from_user(user)
+
+
+class DeletionReceipt(BaseModel):
+    """The per-table counts logged BEFORE the cascade ran (§19), returned so
+    the person can see what went — the deletion trace without the data."""
+
+    deleted: dict[str, int]
+    rows_removed: int
+
+
+@router.delete("/me", response_model=DeletionReceipt)
+async def delete_me(user: CurrentUser, session: DbSession) -> DeletionReceipt:
+    """S15-B1/B2/B3. One transaction, the cascade graph, counts first.
+
+    The two cross-user effects (data_hygiene.md §2) are in the counts under
+    `…_as_candidate` and `…_as_match`: dates and chats where this person was
+    the OTHER party disappear from someone else's history. Named trade —
+    privacy beats history."""
+    counts = await delete_account(session, user)
+    return DeletionReceipt(deleted=counts, rows_removed=sum(counts.values()))

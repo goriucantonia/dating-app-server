@@ -80,6 +80,12 @@ class AnalysisOut(BaseModel):
     # a separate progress endpoint would mean two loops and two truths.
     progress: dict | None = None
     candidates: list[CandidateOut] = []
+    # S15-B3: how many of this analysis's people have since deleted their
+    # accounts. Their candidate rows, dates and scores cascaded away with them
+    # (data_hygiene.md — privacy beats history); the analysis row survives
+    # with a gap, and this is the gap, labeled. Computed from the count
+    # matching recorded, never from `pool_status`, which cannot tell 1 from 2.
+    removed_candidates: int = 0
     # The plain sentence the UI shows when there is nobody. Server-side so the
     # honest-empty-pool wording cannot drift between clients (§26).
     message: str | None = None
@@ -119,10 +125,12 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
         ).scalars():
             labels.setdefault(t.user_id, {}).setdefault(t.category, []).append(t.label)
 
+    had = analysis.candidate_count if analysis.candidate_count is not None else len(rows)
     return AnalysisOut(
         id=str(analysis.id), status=analysis.status,
         pool_status=analysis.pool_status, error=analysis.error,
         created_at=analysis.created_at, progress=analysis.progress,
+        removed_candidates=max(0, had - len(rows)),
         candidates=[
             CandidateOut(
                 candidate_user_id=str(c.candidate_user_id),

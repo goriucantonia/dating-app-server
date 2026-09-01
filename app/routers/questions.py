@@ -18,15 +18,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 
+from app.answers import save_answer
 from app.errors import ApiError
 from app.logging_setup import log_event
-from app.models import Answer, Question, Trait
+from app.models import Answer, Question
 from app.security import CurrentUser, DbSession
 
 router = APIRouter(tags=["questions"])
@@ -152,43 +153,6 @@ async def upsert_answer(
     ):
         raise ApiError(404, "question_not_found", "That question doesn't exist.")
 
-    answer = await session.scalar(
-        select(Answer).where(
-            Answer.user_id == user.id, Answer.question_id == question_id
-        )
-    )
-    if answer is None:
-        answer = Answer(
-            user_id=user.id, question_id=question_id, answer_text=payload.answer_text
-        )
-        session.add(answer)
-        await session.commit()
-        log_event(
-            logger, "answer_saved", kind="created",
-            user_id=str(user.id), question=question.code or str(question.id),
-            origin=question.origin, length=len(payload.answer_text),
-        )
-    else:
-        old_length = len(answer.answer_text)
-        # Which traits were built on the answer being edited (S5-B5, §7) —
-        # empty until extraction exists (Step 6), but logged from day one.
-        affected = (
-            await session.scalars(
-                select(Trait.id).where(
-                    Trait.user_id == user.id,
-                    Trait.source_answer_ids.contains([answer.id]),
-                )
-            )
-        ).all()
-        answer.answer_text = payload.answer_text
-        answer.updated_at = datetime.now(UTC)
-        session.add(answer)
-        await session.commit()
-        log_event(
-            logger, "answer_saved", kind="edited",
-            user_id=str(user.id), question=question.code or str(question.id),
-            origin=question.origin,
-            old_length=old_length, new_length=len(payload.answer_text),
-            traits_sourced_from_this_answer=[str(t) for t in affected],
-        )
+    # The ONE upsert path, shared with demo seeding (S15-B5, §16).
+    answer, _ = await save_answer(session, user.id, question, payload.answer_text)
     return QuestionOut.build(question, answer)

@@ -18,10 +18,11 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import select
 
+from app.accounts import create_user
 from app.errors import ApiError
 from app.logging_setup import log_event
 from app.models import User
-from app.security import DbSession, create_token, hash_password, verify_password
+from app.security import DbSession, create_token, verify_password
 from app.users import GENDER_VALUES, UserOut, compute_age
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -88,24 +89,14 @@ async def register(payload: RegisterIn, request: Request, session: DbSession) ->
         raise ApiError(
             409, "email_taken", "That email is already registered — try signing in instead."
         )
-    user = User(
-        email=payload.email,
-        password_hash=hash_password(payload.password),
-        display_name=payload.display_name,
-        birth_date=payload.birth_date,
-        gender=payload.gender,
-        interested_in=payload.interested_in,
-        age_pref_min=payload.age_pref_min,
-        age_pref_max=payload.age_pref_max,
-        city=payload.city,
-        country=payload.country,
-        opt_in=payload.opt_in,
-    )
-    session.add(user)
-    await session.commit()
-    log_event(
-        logger, "register", outcome="ok",
-        user_id=str(user.id), opt_in=user.opt_in, gender=user.gender,
+    # The ONE creation path, shared with demo seeding (S15-B5, §16).
+    user = await create_user(
+        session,
+        email=payload.email, password=payload.password,
+        display_name=payload.display_name, birth_date=payload.birth_date,
+        gender=payload.gender, interested_in=payload.interested_in,
+        age_pref_min=payload.age_pref_min, age_pref_max=payload.age_pref_max,
+        city=payload.city, country=payload.country, opt_in=payload.opt_in,
     )
     token = create_token(user.id, request.app.state.settings.jwt_secret)
     return AuthOut(token=token, user=UserOut.from_user(user))
