@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.registry import build_providers
+from app.ai.routing import TaskRouter
 from app.config import get_settings, load_ai_config
 from app.db import check_connection, create_engine
 from app.errors import ApiError, register_error_handlers
@@ -45,6 +47,8 @@ async def lifespan(app: FastAPI):
 
     app.state.settings = settings
     app.state.ai_config = ai_config
+    # Fails at startup on incoherent routing config, not mid-date (S2-B5).
+    app.state.ai_router = TaskRouter(build_providers(ai_config), ai_config)
     app.state.engine = create_engine(settings.database_url)
     yield
     await app.state.engine.dispose()
@@ -67,7 +71,7 @@ app.add_middleware(
 async def health(request: Request) -> dict:
     try:
         await check_connection(request.app.state.engine)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — any DB failure means unhealthy, by design
         log_event(logger, "health_check", level=logging.ERROR, outcome="db_unreachable", error=str(exc))
         raise ApiError(503, "database_unavailable", "The server can't reach its database right now.")
     log_event(logger, "health_check", outcome="ok")

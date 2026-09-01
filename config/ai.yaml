@@ -15,11 +15,14 @@ ai:
     model: text-embedding-004       # or similarity comparisons are meaningless.
                                     # Changing this = migration + re-embed all users.
   routing:
+    # google slots: gemini-2.5-flash is PROVISIONAL (2026-09-01) — the spec's
+    # "gemini-flash" is not a callable model id; a real id is needed to
+    # exercise the paths in Step 2. Final choice still belongs to the gates.
     dispute_followups:   { provider: openrouter, model: "free-model-of-choice" }
-    trait_extraction:    { provider: google,     model: "gemini-flash" }
-    persona_digest:      { provider: google,     model: "gemini-flash" }
+    trait_extraction:    { provider: google,     model: "gemini-2.5-flash" }
+    persona_digest:      { provider: google,     model: "gemini-2.5-flash" }
     scenario_generation: { provider: openrouter, model: "free-model-of-choice" }
     date_simulation:     { provider: openrouter, model: "free-model-of-choice" }
-    judging:             { provider: google,     model: "gemini-flash" }
+    judging:             { provider: google,     model: "gemini-2.5-flash" }
     chat_reply:          { provider: openrouter, model: "free-model-of-choice" }
     chat_compaction:     { provider: openrouter, model: "free-model-of-choice" }

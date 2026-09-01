@@ -23,8 +23,21 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10"]
 
+# Explicit, because setuptools auto-discovery breaks the moment a second
+# top-level directory (probes/, tests/) contains .py files — DEFECTS.md D-003.
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# EXE002: through the Windows bind mount every file reads as executable —
+# the finding is an artifact of the mount, not of the code.
+ignore = ["EXE002"]
 
 [tool.mypy]
 strict = true
