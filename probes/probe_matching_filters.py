@@ -185,12 +185,15 @@ async def main() -> int:
 
         # --- the excluded, each failing exactly one filter -------------------
         # Excluded on gender: another woman, and Alice wants men.
-        await register(c, tag="wrong-gender", gender="woman", interested_in=["woman"])
+        wrong_gender = await register(
+            c, tag="wrong-gender", gender="woman", interested_in=["woman"])
         # Excluded one-directionally: a man who is not interested in women.
-        await register(c, tag="one-way", gender="man", interested_in=["man"])
+        one_way = await register(
+            c, tag="one-way", gender="man", interested_in=["man"])
         # Excluded on age: 70 and Alice's range tops out at 60.
-        await register(c, tag="too-old", gender="man", interested_in=["woman"],
-                       birth_date="1956-01-01")
+        too_old = await register(
+            c, tag="too-old", gender="man", interested_in=["woman"],
+            birth_date="1956-01-01")
         # Excluded on opt_in.
         opted_out = await register(c, tag="opted-out", gender="man",
                                    interested_in=["woman"], opt_in=False)
@@ -207,8 +210,15 @@ async def main() -> int:
         check("the one legitimate match IS returned", dan["id"] in ids)
         check("1-2 eligible reports pool_status 'partial'",
               result["pool_status"] == "partial", str(result["pool_status"]))
-        check("gender mismatch excluded", not (ids - {dan["id"]}),
-              f"unexpected extras: {ids - {dan['id']}}")
+        # Asserted per-user, NOT as "nobody else appears". The database is a
+        # shared world: other people legitimately opt in, and Step 15 seeds
+        # demo profiles on purpose. A probe that only passes on an empty
+        # database is a probe that will start failing for the right reasons at
+        # the worst time — this one failed exactly that way once, on a user
+        # enabled for an unrelated UI witness.
+        check("gender mismatch excluded", wrong_gender["id"] not in ids)
+        check("one-directional interest excluded", one_way["id"] not in ids)
+        check("age out of range excluded", too_old["id"] not in ids)
         check("opt_in=false excluded", opted_out["id"] not in ids)
         check("no ready snapshot excluded (the §11 gate)", no_snap["id"] not in ids)
 
@@ -275,11 +285,23 @@ async def main() -> int:
             "opt_in OFF removes them from someone else's pool",
             dan["id"] not in {x["candidate_user_id"] for x in without["candidates"]},
         )
-        check("with nobody left the run says so honestly",
-              without["status"] == "no_candidates"
-              and without["pool_status"] == "empty"
-              and without["message"] == "There is no one to match you with yet.",
-              f"{without['status']}/{without['pool_status']}")
+
+        # `no_candidates` is CONSTRUCTED rather than waited for: narrow the
+        # requester's own age filter until nobody on earth satisfies it. That
+        # empties the pool deterministically without depending on who else
+        # happens to exist, and it exercises the honest-empty-pool path (S9-B7)
+        # for a real reason a real user could hit.
+        ah = auth(alice["token"])
+        (await c.patch("/me", json={"age_pref_min": 98, "age_pref_max": 99},
+                       headers=ah)).raise_for_status()
+        empty = await analyse(c, alice["token"])
+        check("an impossible filter empties the pool honestly",
+              empty["status"] == "no_candidates"
+              and empty["pool_status"] == "empty"
+              and empty["message"] == "There is no one to match you with yet.",
+              f"{empty['status']}/{empty['pool_status']}")
+        (await c.patch("/me", json={"age_pref_min": 18, "age_pref_max": 60},
+                       headers=ah)).raise_for_status()
 
         (await c.patch("/me", json={"opt_in": True}, headers=dh)).raise_for_status()
         restored = await analyse(c, alice["token"])
