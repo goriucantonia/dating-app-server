@@ -39,10 +39,11 @@ before it can run is a witness script nobody runs.
 
 Cost, because it is large enough to plan around: this drives a REAL pipeline.
 Two onboardings (~4 calls), one scenario call per matched candidate, and then
-up to 27 turns per date at roughly 7 seconds each. The default run stops once
+about 28 turns per date at roughly 6 seconds each. The default run stops once
 the resume claim is proven — usually one date's worth. `--full` waits for the
-whole analysis, which at a full pool is six dates, ~165 calls and around
-half an hour. See PICKUP's quota table before choosing.
+whole analysis, which since the 2026-09-01 revision to ONE date per candidate
+is at most three dates, ~90 calls and around eleven minutes. See PICKUP's
+quota table before choosing.
 """
 
 from __future__ import annotations

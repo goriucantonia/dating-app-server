@@ -57,7 +57,7 @@ from app.models import (
 )
 from app.persona import get_current_snapshot
 from app.schemas.agent_response import AGENT_RESPONSE_V1, SCHEMA_VERSION
-from app.schemas.date_scenarios import DATE_SCENARIOS_V1
+from app.schemas.date_scenarios import DATE_SCENARIOS_V2, SETTINGS_PER_CANDIDATE
 from app.users import compute_age
 
 logger = logging.getLogger("app.simulation")
@@ -71,8 +71,23 @@ DATE_TASK = "date_simulation"
 # development_principles.md §18 precisely because it is the kind of rule
 # someone re-reads later and "fixes" into counting only what the agents said.
 MESSAGE_CAP = 30
-DATES_PER_CANDIDATE = 2
-MAX_DATES_PER_ANALYSIS = 6
+# REVISED 2026-09-01 (owner decision): ONE date per candidate, not two. A, B
+# and C get one evening apiece.
+#
+# Derived from the schema's `SETTINGS_PER_CANDIDATE` rather than written out
+# again: one generated setting IS one date, and two constants that must agree
+# are two constants that will eventually disagree.
+#
+# The cost of the change, named because it is real: with two dates each, a
+# candidate's score was the mean of two independent readings, and one strange
+# evening or one wobbly judge call got averaged down. With one date it does
+# not — a single date now fully determines a candidate's score. Cheaper (a
+# full pool drops from ~177 model calls to ~90) and faster, at the price of a
+# noisier number.
+DATES_PER_CANDIDATE = SETTINGS_PER_CANDIDATE
+# Matching caps the pool at 3, so 3 is what falls out — but a cap that only
+# holds because another module happens to be small is not a cap.
+MAX_DATES_PER_ANALYSIS = 3
 EVENT_PROBABILITY = 0.15
 MAX_EVENTS_PER_DATE = 3
 # One closing exchange = one line each, once both of them want to wrap up.
@@ -240,8 +255,8 @@ interests, it gives them something to look at and touch, and it can be \
 interrupted. Nothing you invent may state a fact about either person that you \
 were not given.
 
-The two settings must be genuinely different from each other — not the same \
-place at two times of day."""
+They get one evening together, so make it the RIGHT one — the place these two \
+particular people would actually end up, not a place any two people could."""
 
 DATE_PREAMBLE = """\
 
@@ -315,16 +330,33 @@ def build_scenario_request(
     `date_simulation.md` §2, and it is written here as a DIFFERENT INSTRUCTION
     rather than left to the model's judgement. Handed two interest lists and no
     guidance, a model averages them into a setting that is nobody's — a coffee
-    shop. The Source of Truth asks for a setting "aligned with at least one of
-    the individuals", which when they share nothing means one each.
+    shop.
+
+    **REVISED 2026-09-01 (owner decision: one date per candidate).** The old
+    fallback read "one setting anchored in HER interests and one in HIS" — an
+    instruction that needs two settings, and that became impossible the moment
+    a candidate got only one date. The Source of Truth asks for a setting
+    "aligned with at least one of the individuals", so with one evening it has
+    to be built around one person's world.
+
+    **It is built around the CANDIDATE's**, and the reason is what a whole
+    analysis looks like from the requester's side: they get one date per
+    candidate, so across a full pool they are shown three different worlds —
+    three people's actual lives — rather than three variations on their own.
+    Anchoring on the requester would spend all three evenings in the same kind
+    of place with different company, which tells them almost nothing about the
+    candidates.
+
+    `anchored_in_interest` records which interest it was, so this stays
+    checkable after the fact rather than merely asserted.
     """
-    anchor_vocabulary = (
-        shared
-        if shared
-        else [t.label for t in user_interests] + [t.label for t in candidate_interests]
-    )
+    # What the model may anchor on: what they share, or -- when they share
+    # nothing -- the candidate's own interests, and ONLY those. Offering
+    # both lists here would quietly re-open the choice the fallback exists
+    # to make.
+    anchor_vocabulary = shared or [t.label for t in candidate_interests]
     head = (
-        f"{user_name} and {candidate_name} are going on two first dates.\n\n"
+        f"{user_name} and {candidate_name} are going on a first date.\n\n"
         + _interest_block(f"{user_name} is into:", user_interests)
         + "\n\n"
         + _interest_block(f"{candidate_name} is into:", candidate_interests)
@@ -334,19 +366,18 @@ def build_scenario_request(
         instruction = (
             "\n\nThey share these interests: "
             + ", ".join(shared)
-            + ".\n\nBuild BOTH settings around things they share. Set "
-            "`anchored_in_interest` to the shared interest that setting is "
-            "built around."
+            + ".\n\nBuild the setting around something they share. Set "
+            "`anchored_in_interest` to the shared interest it is built "
+            "around."
         )
     else:
         instruction = (
             "\n\nThey share NO interests at all. Do not split the difference "
             "and do not invent a common ground they do not have.\n\n"
-            f"Build the FIRST setting around one of {user_name}'s interests, "
-            f"and the SECOND around one of {candidate_name}'s. Each of them "
-            "gets one evening in their own world, showing it to someone who "
-            "has never seen it. Set `anchored_in_interest` to the interest "
-            "that setting is built around."
+            f"Build the setting around one of {candidate_name}'s "
+            f"interests: {candidate_name} gets the evening in their own "
+            f"world, showing it to {user_name}, who has never seen it. "
+            "Set `anchored_in_interest` to the interest it is built around."
         )
 
     return (
@@ -355,7 +386,8 @@ def build_scenario_request(
         + "\n\n`anchored_in_interest` must be copied word for word from this "
         "list, and nothing else:\n"
         + "\n".join(f"  - {a}" for a in anchor_vocabulary)
-        + "\n\nProduce exactly two settings."
+        + f"\n\nProduce exactly {SETTINGS_PER_CANDIDATE} "
+        + ("setting." if SETTINGS_PER_CANDIDATE == 1 else "settings.")
     )
 
 
@@ -367,7 +399,11 @@ async def generate_scenarios(
     candidate: User,
     shared: list[str],
 ) -> list[dict]:
-    """One structured call per candidate, returning the two settings (S11-B2)."""
+    """One structured call per candidate, returning its setting(s) (S11-B2).
+
+    Returns a list because `SETTINGS_PER_CANDIDATE` is a knob, not a constant
+    of nature — it was 2 until 2026-09-01 and the caller slices to it.
+    """
     user_interests = await _interest_traits(session, user.id)
     candidate_interests = await _interest_traits(session, candidate.id)
 
@@ -389,7 +425,7 @@ async def generate_scenarios(
             temperature=0.9,
             max_tokens=SCENARIO_MAX_TOKENS,
         ),
-        DATE_SCENARIOS_V1,
+        DATE_SCENARIOS_V2,
     )
     settings = result["settings"]
 
@@ -944,9 +980,11 @@ async def _simulate(
     # that needs the judge.
     from app.judging import judge_analysis
 
+    ran = completed + incomplete
     await _progress(
         session, analysis, "judging",
-        f"{completed + incomplete} dates ran. Scoring them now…",
+        f"{ran} {'date' if ran == 1 else 'dates'} ran. Scoring "
+        f"{'it' if ran == 1 else 'them'} now…",
         dates_complete=completed, dates_incomplete=incomplete,
     )
     try:
@@ -960,8 +998,10 @@ async def _simulate(
         await session.commit()
         await _progress(
             session, analysis, "judging_failed",
-            "The dates ran, but scoring them didn't finish. The transcripts "
-            "are safe and you can read them.",
+            f"The {'date' if ran == 1 else 'dates'} ran, but scoring "
+            f"{'it' if ran == 1 else 'them'} didn't finish. The "
+            f"{'transcript is' if ran == 1 else 'transcripts are'} safe and "
+            "you can read them.",
             dates_complete=completed, dates_incomplete=incomplete,
             judged=False, error=f"{type(exc).__name__}: {exc}"[:500],
         )
@@ -977,7 +1017,7 @@ async def _simulate(
     await session.commit()
     await _progress(
         session, analysis, "done",
-        f"{completed + incomplete} dates ran and {len(finals)} "
+        f"{ran} {'date' if ran == 1 else 'dates'} ran and {len(finals)} "
         f"{'person was' if len(finals) == 1 else 'people were'} scored.",
         dates_complete=completed, dates_incomplete=incomplete,
         judged=True, candidates_scored=len(finals),

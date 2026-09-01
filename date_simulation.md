@@ -12,7 +12,8 @@ For a `matched` analysis: generate date scenarios per candidate, run the turn-by
 
 - **Everything is a background pipeline.** `POST /analyses/{id}/simulate` returns immediately; the pipeline runs as an in-process asyncio task. **No Celery/Redis this phase** *(trade: a server restart kills in-flight tasks; accepted because every turn is checkpointed in Postgres and a startup reconciliation pass re-launches any analysis stuck in `simulating` — the work resumes, only the process-local task is lost)*.
 - **Sequential execution, one date at a time,** one active simulation per user (enforced upstream). Free-tier rate limits make parallel dates counterproductive — parallelism would just spread the same throughput across more 429s. Global semaphore of 2 concurrent pipelines across all users.
-- **Scenario generation** (one structured AI call per candidate): input = `shared_interests` + both users' interest traits; output = 2 distinct settings, each `{setting_name, description, sensory_details, possible_events[4-6]}`. **Empty-intersection fallback** (flagged open in `candidate_matching.md`): when `shared_interests` is empty, the prompt receives both interest lists and must pick one setting anchored in each person's interests (one date "hers", one "his") — matching the Source of Truth's "aligned with at least one of the individuals."
+- **Scenario generation** (one structured AI call per candidate): input = `shared_interests` + both users' interest traits; output = **1 setting** `{setting_name, description, sensory_details, anchored_in_interest, possible_events[4-6]}`. **Empty-intersection fallback** (flagged open in `candidate_matching.md`): when `shared_interests` is empty, the setting is built around the **candidate's** interests — matching the Source of Truth's "aligned with at least one of the individuals."
+  - **REVISED 2026-09-01 (owner decision).** This read "2 distinct settings" and "one setting anchored in each person's interests (one date 'hers', one 'his')", because the cap was two dates per candidate. The owner changed that to **one date per candidate**, which made the two-settings instruction impossible to state. The fallback anchors on the CANDIDATE because a requester working through a full pool then sees three different people's worlds rather than three versions of their own. Schema bumped to `date_scenarios.v2`.
 - **Turn loop per date** (cap: 30 messages total, ~15 each):
   1. Compose agent context: their frozen persona snapshot's system prompt + scenario description + a date-role preamble ("you are on a first date with…") + full transcript so far (30 messages fits any context window — no summarization needed inside a date).
   2. One structured call → `agent_response.v1` through the Structured Output Guard.
@@ -46,7 +47,9 @@ CREATE TABLE dates (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     analysis_id        UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
     candidate_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    ordinal            INT  NOT NULL,               -- date 1 or 2 for this candidate
+    ordinal            INT  NOT NULL,               -- always 1 since 2026-09-01;
+                                                   -- the column stays so the cap can
+                                                   -- move again without a migration
     scenario           JSONB NOT NULL,              -- setting_name, description, sensory, events
     status             TEXT NOT NULL CHECK (status IN
                          ('pending','running','complete','incomplete','failed')),
@@ -129,7 +132,7 @@ Chat consumes `DateDigest` only — it never reads raw `date_messages`.
 ## 6. Technical decisions (trades named)
 
 1. **In-process async tasks + DB checkpoints instead of a task queue.** Cost: restart kills in-flight work (resumed by reconciliation, not lost). Accepted: a queue is a second infrastructure to run in Docker for a single-host friends-scale app.
-2. **Sequential dates.** Cost: wall-clock time (a full analysis ≈ 6 dates × 30 calls + overhead — tens of minutes on throttled free tiers). Accepted: background + notification design already assumes the user leaves; parallelism buys nothing under a shared rate limit.
+2. **Sequential dates.** Cost: wall-clock time (a full analysis ≈ 3 dates × 30 calls + overhead — measured at ~11 minutes on the free tier; it was 6 dates before the 2026-09-01 revision). Accepted: background + notification design already assumes the user leaves; parallelism buys nothing under a shared rate limit.
 3. **Score computed in code from judge criteria.** Cost: rubric weights are opinions. Accepted: weights are visible, versioned, and identical for everyone — the alternative (model picks a number) is neither.
 4. **Events from pre-generated scenario lists.** Cost: less surprise than live-generated events. Accepted: one fewer call per event, and the scenario call produces better-anchored events ("a vintage Mustang pulls up") than a mid-date generic generator.
 5. **Judge sees only the transcript, not the trait profiles' full text** — it receives the transcript plus both users' trait *labels* (for clash attribution). Cost: judge can't cite unexpressed traits. Accepted deliberately: the judge scores what happened on the date, not what the profiles predicted; that separation is what makes a surprising date result informative.
@@ -139,7 +142,7 @@ Logging obligations (§7): every turn logs date_id/seq/provider/model/attempt/ou
 
 ## Locked by this document
 
-1. Caps: 2 dates/candidate, 30 messages/date, events p=0.15 max 3 never consecutive, global concurrency 2.
+1. Caps: **1 date/candidate, max 3 per analysis** (REVISED 2026-09-01, owner decision — was 2/candidate and 6/analysis), 30 messages/date, events p=0.15 max 3 never consecutive, global concurrency 2. **The cost of the revision, named:** a candidate's score was the mean of two independent readings and is now a single one, so one odd evening or one wobbly judge call is no longer averaged down. Accepted for roughly half the model calls per analysis (~177 → ~90).
 2. Natural ending via mutual `wants_to_end`; hard cap otherwise.
 3. Checkpoint-per-message; resume semantics; incomplete-date policy (≥10 messages → judged as partial at 0.5 weight, else excluded).
 4. `judge_rubric.v1` criteria and the code-side scoring formula, verbatim.

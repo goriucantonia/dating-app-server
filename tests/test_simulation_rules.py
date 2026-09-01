@@ -20,9 +20,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from app.schemas.date_scenarios import SETTINGS_PER_CANDIDATE
 from app.simulation import (
     CLOSING_TURNS,
+    DATES_PER_CANDIDATE,
     EVENT_PROBABILITY,
+    MAX_DATES_PER_ANALYSIS,
     MAX_EVENTS_PER_DATE,
     MESSAGE_CAP,
     DateContext,
@@ -320,7 +323,7 @@ class FakeTrait:
     description: str = "they do this a lot"
 
 
-def test_shared_interests_drive_both_settings():
+def test_a_shared_interest_drives_the_setting():
     body = build_scenario_request(
         user_name="Alice", candidate_name="Dan",
         user_interests=[FakeTrait("restores old bicycles")],
@@ -328,13 +331,21 @@ def test_shared_interests_drive_both_settings():
         shared=["restores old bicycles"],
     )
     assert "They share these interests: restores old bicycles" in body
-    assert "Build BOTH settings around things they share" in body
+    assert "Build the setting around something they share" in body
+    assert "Produce exactly 1 setting." in body
 
 
-def test_the_empty_intersection_fallback_asks_for_one_each():
+def test_the_empty_intersection_fallback_anchors_on_the_candidate():
     """S11-B3, closed in date_simulation.md §2 and NOT left to the model's
     judgement: handed two lists and no instruction, a model averages them into
-    a setting that belongs to neither person."""
+    a setting that belongs to neither person.
+
+    REVISED 2026-09-01 with the move to one date per candidate. The old rule
+    was "one setting hers, one his", which needs two settings. With one
+    evening it is built around the CANDIDATE's world, so that a requester
+    working through a full pool is shown three different lives rather than
+    three versions of their own.
+    """
     body = build_scenario_request(
         user_name="Alice", candidate_name="Dan",
         user_interests=[FakeTrait("sea swimming")],
@@ -342,12 +353,23 @@ def test_the_empty_intersection_fallback_asks_for_one_each():
         shared=[],
     )
     assert "share NO interests" in body
-    assert "FIRST setting around one of Alice's interests" in body
-    assert "SECOND around one of Dan's" in body
-    # Both anchors must be available to copy from, or the model cannot satisfy
-    # the instruction it was just given.
-    assert "- sea swimming" in body
-    assert "- competitive chess" in body
+    assert "Build the setting around one of Dan's" in body
+    assert "Dan gets the evening in their own" in body
+
+
+def test_the_fallback_offers_only_the_candidates_interests_to_anchor_on():
+    """The anchor vocabulary is the instruction's teeth. Leaving the
+    requester's interests in the list would quietly re-open the choice the
+    fallback exists to make, and the model would take it."""
+    body = build_scenario_request(
+        user_name="Alice", candidate_name="Dan",
+        user_interests=[FakeTrait("sea swimming")],
+        candidate_interests=[FakeTrait("competitive chess")],
+        shared=[],
+    )
+    vocabulary = body.split("copied word for word from this list")[1]
+    assert "competitive chess" in vocabulary
+    assert "sea swimming" not in vocabulary
 
 
 def test_the_anchor_vocabulary_is_the_shared_list_when_there_is_one():
@@ -362,3 +384,19 @@ def test_the_anchor_vocabulary_is_the_shared_list_when_there_is_one():
     # `sea swimming` is Alice's alone, so anchoring a "shared" setting on it
     # would be the fabricated common ground the matching module forbids.
     assert "sea swimming" not in vocabulary
+
+
+# --- the caps themselves (revised 2026-09-01) ------------------------------
+
+
+def test_one_date_per_candidate_and_three_per_analysis():
+    """The owner's revision, pinned. Two constants used to carry this number
+    -- the schema's `SETTINGS_PER_CANDIDATE` and simulation's
+    `DATES_PER_CANDIDATE` -- and they had to agree by hand. They are now the
+    same object, which is what this first assertion is really checking."""
+    assert DATES_PER_CANDIDATE is SETTINGS_PER_CANDIDATE
+    assert DATES_PER_CANDIDATE == 1
+    # Matching caps the pool at 3, so 3 dates is the ceiling -- but it is
+    # written down here rather than inherited, so it still binds if matching
+    # ever returns more.
+    assert MAX_DATES_PER_ANALYSIS == 3
