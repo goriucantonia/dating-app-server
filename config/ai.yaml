@@ -57,14 +57,19 @@ ai:
     # into several traits — a fidelity-gate concern (Step 8), not a
     # correctness one.
     #
-    # UNEXPLAINED, 2026-09-01 (Step 11): this line was found in the working
-    # tree pointing at dots-3-note-preview, uncommitted and undated, directly
-    # under the paragraph above explaining why it is NOT dots. Nothing records
-    # whether that was a re-measurement or a slip, and §23 says a revision
-    # names its new information and its date. It is left as found rather than
-    # reverted on a guess: dots served four trait_extraction calls cleanly on
-    # 2026-09-01, so it is not currently broken for this task. The owner should
-    # confirm which model is meant. Nothing in Step 11 depends on it.
+    # SETTLED 2026-09-01 (owner decision, Step 11). The pin above was raised as
+    # a possible silent drift: the line points at dots-3-note-preview while the
+    # D-008 paragraph above explains why it was moved OFF dots. The owner's
+    # ruling: this is not a contradiction. The model pins are TESTING config
+    # and they move with what is available and affordable — D-008 records why
+    # nemotron was correct on the day it was written, not a promise that the
+    # pin is frozen.
+    #
+    # So: dots-3-note-preview is the current, intended pin for this task, and
+    # it served four trait_extraction calls cleanly on 2026-09-01. What stays
+    # true from D-008 is the MECHANISM, not the model choice — one OpenRouter
+    # id is several upstream providers, so if this task starts 400ing again,
+    # move this line rather than every line.
     trait_extraction:    { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     persona_digest:      { provider: openrouter, model: "dots-studio/dots-3-note-preview:free" }
     # FILLED 2026-09-01 (Step 11): scenario generation is the first call of
