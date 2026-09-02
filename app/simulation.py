@@ -121,30 +121,28 @@ MAX_EVENTS_PER_DATE = 3
 MAX_MESSAGES_PER_DATE = TURN_CAP + MAX_EVENTS_PER_DATE
 # One closing exchange = one line each, once both of them want to wrap up.
 CLOSING_TURNS = 2
-# An `incomplete` date with this many AGENT TURNS is still worth judging
-# (date_simulation.md, locked #3). Step 12 owns the policy; the constant lives
-# here with the loop that produces the incomplete dates.
+# REMOVED 2026-09-02 (owner decision): `JUDGEABLE_MIN_TURNS = 10` is gone, and
+# with it the whole "too short to judge" rule.
 #
-# REVISED 2026-09-01 (owner decision): the threshold counts TURNS, not rows.
-# It used to count rows, and that was a leftover from the days when the date
-# cap counted rows too. Once the cap moved to turns, the two rules disagreed
-# about what a date is made of, and the disagreement was reachable:
+# It lived here, beside the loop that produces incomplete dates, and it said:
+# an `incomplete` date with fewer than 10 agent turns is not scored at all,
+# shown as failed, and excluded from its candidate's mean. The stated reason
+# was that below that there is no date to judge, only an opening.
 #
-#     7 turns + 3 events = 10 rows  ->  judged
-#     9 turns + 0 events =  9 rows  ->  excluded
+# The owner overruled it, and the reasoning that replaces it is better: the
+# threshold answered a question of DEPTH with a rule about ADMISSION. A
+# four-turn date is not unjudgeable — it is thinly evidenced, and the honest
+# response to thin evidence is a careful reading with fewer definitive claims,
+# not a refusal to read. Throwing it away also destroyed the one thing the
+# person was waiting for. They watched a date happen and were then told there
+# was nothing to say about it.
 #
-# The date with LESS conversation in it got scored, purely because the dice
-# put events in it. Environment rows are scenery; nobody said anything. This
-# now reads the same `turn_count` the cap does, so the two cannot drift again.
-#
-# The value stays 10, and the change actually RESTORES its original stated
-# meaning — "roughly five each" was always a claim about turns. Worth knowing
-# that against a 16-turn cap this is a high bar (a date must reach ~62% of a
-# full evening to be scored at all), and it errs towards throwing a thin date
-# away rather than scoring an evening too slight to have been one. Revisit the
-# NUMBER if genuinely half-finished dates start being discarded; do not revisit
-# it to make the scores look better.
-JUDGEABLE_MIN_TURNS = 10
+# Every date with a transcript is now judged, and the judge is told how much it
+# has to work with and reports its own `confidence` (`judge_rubric.v2`). The
+# only floor left is arithmetic rather than editorial, and it lives in
+# `app/judging.py`: a date with ZERO agent turns has no transcript to read, and
+# a judge handed an empty page would invent an evening.
+
 
 SCENARIO_MAX_TOKENS = 4096
 TURN_MAX_TOKENS = 2048
@@ -769,7 +767,12 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
                 status="incomplete", ended_by="turn_gave_up", failed_at_seq=seq,
                 speaker=speaker, provider=provider.name, model=model,
                 messages=len(rows),
-                judgeable=turn_count(views) >= JUDGEABLE_MIN_TURNS,
+                # `judgeable` used to be a threshold comparison here. Since
+                # 2026-09-02 the only thing that can make a date unjudgeable is
+                # having nothing in it, so this line says exactly that and
+                # nothing about how thin the transcript is — that reading now
+                # belongs to the judge, as `confidence`.
+                judgeable=turn_count(views) > 0,
                 turns=turn_count(views),
                 error=date.error,
             )

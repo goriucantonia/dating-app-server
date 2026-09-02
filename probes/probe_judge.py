@@ -14,14 +14,16 @@ someone:
    ones it scored.
 
 Plus the provenance rules the module plan locks: every evaluation carries its
-judge model and `judge_rubric.v1` (AC6), an empty `clashes` array is accepted
+judge model and rubric version (AC6), an empty `clashes` array is accepted
 as a verdict rather than retried into producing something (AC5, §10), and
 `DateDigest` compiles from stored evaluations with no new AI call (S12-B11).
 
-**Added 2026-09-02:** every candidate in one analysis must have run the SAME
-setting. That is what makes their scores comparable at all, and it is checked
-here because it is the one property no unit test can see — it is a fact about
-stored rows, not about a function.
+**Revised 2026-09-02.** The rubric is `judge_rubric.v2` and the ten-turn
+exclusion is gone: every date with a transcript is judged, and the judge
+reports its own `confidence` instead. The checks below accept a v1 evaluation
+where one already exists — those rows are real history, produced under real
+instructions, and a probe that demanded v2 everywhere would be asserting that
+the past was different.
 
 **Why part of this runs in-process**, unlike most probes here: judging is
 IDEMPOTENT by design — `date_evaluations.date_id` is a primary key, and the
@@ -145,9 +147,25 @@ async def main() -> int:
         check(
             "the evaluation carries its judge model and rubric version (AC6)",
             bool(evaluation["judge_model"])
-            and evaluation["rubric_version"] == "judge_rubric.v1",
+            and evaluation["rubric_version"] in ("judge_rubric.v1", "judge_rubric.v2"),
             f"{evaluation['judge_provider']}/{evaluation['judge_model']} "
             f"under {evaluation['rubric_version']}",
+        )
+
+        # --- 2026-09-02: depth is reported, not used as a gate -------------
+        check(
+            "a v2 evaluation carries the judge's own confidence and a note "
+            "about what the transcript could show; a v1 one carries neither "
+            "and must not have had either invented for it",
+            (
+                evaluation["confidence"] is not None
+                and bool(evaluation["evidence_note"])
+                if evaluation["rubric_version"] == "judge_rubric.v2"
+                else evaluation["confidence"] is None
+            ),
+            f"{evaluation['rubric_version']}: confidence="
+            f"{evaluation['confidence']}, note="
+            f"{(evaluation['evidence_note'] or '')[:80]!r}",
         )
 
         # --- AC5: an empty clashes array is a verdict, not a retry ---------
@@ -173,8 +191,13 @@ async def main() -> int:
             f"{empties} judged dates reported no clashes",
         )
 
-        # --- S12-B7 / AC4: the exclusion is stated on the wire -------------
-        excluded = [
+        # --- AC4, rewritten 2026-09-02: nothing is excluded for being thin --
+        #
+        # This block used to assert the opposite: that a sub-10-turn date was
+        # excluded and said so on the wire. The owner removed the threshold, so
+        # the check now looks for the failure that removal could cause — a
+        # thin date quietly still being dropped.
+        finished = [
             d
             for analysis in analyses
             for d in (
@@ -183,15 +206,24 @@ async def main() -> int:
                     headers={"Authorization": f"Bearer {token}"},
                 )
             ).json()["dates"]
-            if d["excluded_from_score"]
+            if d["status"] in ("complete", "incomplete")
         ]
-        for d in excluded:
+        thin = [d for d in finished if 0 < d["turn_count"] < 10]
+        for d in thin:
             check(
-                f"a {d['turn_count']}-turn date is excluded and says so on the "
-                "wire, with no evaluation attached",
-                d["evaluation"] is None and d["turn_count"] < 10,
-                f"status={d['status']}, {d['message_count']} rows of which "
-                f"{d['message_count'] - d['turn_count']} were events",
+                f"a {d['turn_count']}-turn date is JUDGED rather than thrown "
+                "away, and carries a confidence saying how thin it was",
+                d["evaluation"] is not None and not d["excluded_from_score"],
+                f"status={d['status']}, score="
+                f"{(d['evaluation'] or {}).get('date_score')}, confidence="
+                f"{(d['evaluation'] or {}).get('confidence')}",
+            )
+        for d in [d for d in finished if d["excluded_from_score"]]:
+            check(
+                "the only date excluded from a score is one nobody spoke on",
+                d["turn_count"] == 0 and d["evaluation"] is None,
+                f"status={d['status']}, turns={d['turn_count']}, "
+                f"{d['message_count']} rows",
             )
 
         # --- 2026-09-02: the shared fixture ---------------------------------

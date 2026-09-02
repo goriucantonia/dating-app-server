@@ -57,6 +57,12 @@ class EvaluationOut(BaseModel):
     criteria: dict
     date_score: float
     is_partial: bool
+    # How much the transcript supported the judge's reading, 0-100, said by the
+    # judge itself (`judge_rubric.v2`). NULL on evaluations written under v1,
+    # and null has to survive to the client: those rows genuinely have no
+    # confidence, and a 0 or a 50 in its place would be a judgement nobody made.
+    confidence: int | None = None
+    evidence_note: str | None = None
     clicked_subjects: list
     clashes: list
     per_peer_summary: dict
@@ -87,8 +93,8 @@ class DateOut(BaseModel):
     archetype: str = ""
     # The whole transcript, environment rows included.
     message_count: int
-    # What the two of them actually SAID — the number the judging threshold
-    # reads, and the one to show next to "too short to score".
+    # What the two of them actually SAID — the number the judge is told, and
+    # the one to show beside a thin date's confidence.
     turn_count: int
     error: str | None
     # How the date finished, decided by the SAME rule the pipeline used to stop
@@ -99,9 +105,13 @@ class DateOut(BaseModel):
     ended_by: str | None = None
     evaluation: EvaluationOut | None = None
     # Stated on the wire rather than re-derived by every client (S12-B7, AC4).
-    # "This date was too short to score" is a thing the results screen has to
-    # say out loud, and a client recomputing the 10-message rule is a client
-    # that can disagree with the server about someone's score.
+    # A client recomputing the rule is a client that can disagree with the
+    # server about someone's score.
+    #
+    # Since the threshold was removed (2026-09-02) this is true only for a date
+    # nobody spoke on. It stays on the wire because that case is still real and
+    # still has to be labelled rather than shown as a zero — but the copy it
+    # drives is no longer "too short to score", it is "nothing was said".
     excluded_from_score: bool = False
 
 
@@ -139,7 +149,9 @@ def _evaluation_out(row: DateEvaluation | None) -> EvaluationOut | None:
         return None
     return EvaluationOut(
         criteria=row.criteria, date_score=float(row.date_score),
-        is_partial=row.is_partial, clicked_subjects=list(row.clicked or []),
+        is_partial=row.is_partial,
+        confidence=row.confidence, evidence_note=row.evidence_note,
+        clicked_subjects=list(row.clicked or []),
         clashes=list(row.clashes or []), per_peer_summary=dict(row.per_peer or {}),
         verdict_summary=row.verdict, judge_provider=row.judge_provider,
         judge_model=row.judge_model, rubric_version=row.rubric_version,

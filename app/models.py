@@ -472,6 +472,19 @@ class DateEvaluation(Base):
     is_partial: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # How much the transcript actually supported the reading above, 0-100, said
+    # by the judge itself (`judge_rubric.v2`, migration 0012). This is what
+    # replaced the "under 10 turns, not judged at all" rule: a thin date is now
+    # read carefully and marked as thinly evidenced, rather than thrown away.
+    #
+    # NULLABLE, and it must stay that way: rows scored under `judge_rubric.v1`
+    # have no confidence and never will. Defaulting them to a number would
+    # invent a judgement the v1 judge was never asked to make.
+    confidence: Mapped[int | None] = mapped_column(Integer)
+    # One sentence naming what could and could not be told from this
+    # transcript. The prose half of `confidence`, and the half a person can
+    # argue with.
+    evidence_note: Mapped[str | None] = mapped_column(Text)
     judge_provider: Mapped[str] = mapped_column(Text, nullable=False)
     judge_model: Mapped[str] = mapped_column(Text, nullable=False)
     rubric_version: Mapped[str] = mapped_column(Text, nullable=False)

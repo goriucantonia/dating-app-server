@@ -19,17 +19,26 @@ surprising result is informative rather than a bug, and it is enforced here by
 building the prompt from labels only, in one function, rather than by everyone
 remembering.
 
-**The incomplete-date policy is one function with the boundary written down**
-(S12-B7, §14 names it as an accretion risk): at least 10 AGENT TURNS and an
-incomplete date is judged and flagged partial; under 10 it is excluded from
-scoring entirely and shown as failed. Ten turns is roughly five each — below
-that there is not a date to judge, there is an opening.
+**Every date with a transcript is judged** (revised 2026-09-02, owner
+decision). The old policy refused to score an `incomplete` date with fewer than
+10 agent turns: it was shown as failed and left out of its candidate's mean
+entirely. That rule is gone, and the argument against it is the one that should
+have been made when it was written — it answered a question about DEPTH with a
+rule about ADMISSION. A four-turn date is not unjudgeable; it is thinly
+evidenced. The right response to thin evidence is a careful reading that claims
+less, not a refusal to read, and the person on the other end had just watched
+that date happen and was told there was nothing to say about it.
 
-**Turns, not rows** (revised 2026-09-01). Environment rows are scenery: nobody
-said anything, and letting them pad the count meant a date with 7 turns and 3
-events was scored while one with 9 turns and no events was thrown away. The
-threshold reads the same `turn_count` the date cap does, so the two cannot
-drift apart again.
+So `is_judgeable` still exists and is still one function with the boundary
+written down (§14 names accretion here as a risk), but the boundary is now
+arithmetic rather than editorial: **a date is judgeable if it has a
+transcript.** Zero agent turns is the only exclusion left, because a judge
+handed an empty page will describe an evening that did not happen.
+
+**Depth is reported instead, as `confidence`** (`judge_rubric.v2`). The judge
+says how much the transcript supported its own reading, in a field that is
+stored beside the score and never multiplied into it — one number that meant
+both "how it went" and "how much we saw" would be a number nobody could read.
 """
 
 from __future__ import annotations
@@ -54,11 +63,11 @@ from app.models import (
     User,
 )
 from app.schemas.judge_rubric import (
-    JUDGE_RUBRIC_V1,
+    JUDGE_RUBRIC_V2,
     JUDGE_SYSTEM_PROMPT,
     RUBRIC_VERSION,
 )
-from app.simulation import JUDGEABLE_MIN_TURNS, to_views, turn_count
+from app.simulation import TURN_CAP, to_views, turn_count
 
 logger = logging.getLogger("app.judging")
 
@@ -106,23 +115,37 @@ def date_score(criteria: dict) -> float:
     )
 
 
+# The one remaining floor, and it is not a quality bar. A transcript with no
+# agent turns in it has nothing for a judge to read: the pair never spoke. It
+# is written as a named constant rather than a bare `> 0` at the call site so
+# that the rule has somewhere to be argued with, the way the old threshold did.
+JUDGEABLE_MIN_TURNS = 1
+
+
 def is_judgeable(status: str, turns: int) -> bool:
-    """S12-B7, and the boundary is the point (§18).
+    """S12-B7, revised 2026-09-02, and the boundary is still the point (§18).
 
-    A `complete` date is always judged. An `incomplete` one is judged only if
-    the pair took at least 10 TURNS between them — roughly five each. Below
-    that there is no date to score, only an opening, and a number derived from
-    it would look exactly like a number derived from a real evening.
+    A date that RAN is judged — `complete` or `incomplete`, sixteen turns or
+    two. The only refusal left is a transcript with nothing in it, and that is
+    not a judgement about the date: there is literally no text to read, and a
+    judge given an empty page produces an evening nobody had.
 
-    `turns` counts what the agents SAID. It is not the row count: an
-    environment row is the world doing something, not a person talking, and
-    counting it here would let three lucky dice rolls promote a seven-turn
-    fragment over a nine-turn one.
+    What this replaced: `incomplete` dates needed ≥10 turns or they were
+    excluded from scoring and shown as failed. See the module docstring for why
+    that was the wrong shape of rule. **Its stated worry was real and is now
+    handled elsewhere** — a number derived from four turns should not look
+    like a number derived from a full evening, so the judge reports
+    `confidence` alongside it and the results screen shows both.
+
+    `turns` counts what the agents SAID, never the row count. An environment
+    row is the world doing something, not a person talking, and a date whose
+    only rows are three scenery lines is exactly as empty as one with none.
     """
-    if status == "complete":
-        return True
-    if status == "incomplete":
+    if status in ("complete", "incomplete"):
         return turns >= JUDGEABLE_MIN_TURNS
+    # `pending`, `running`, `failed`: nothing has finished happening. A
+    # `running` date judged mid-flight would be scored on half an evening and
+    # then never re-scored, because the evaluation row is a primary key.
     return False
 
 
@@ -188,13 +211,30 @@ def build_judge_request(
     user_labels: list[str],
     candidate_labels: list[str],
     partial: bool,
+    turns: int,
 ) -> str:
+    """**`turns` is stated to the judge, in full, next to what a full evening
+    would have been** (2026-09-02).
+
+    A model handed a four-line transcript cannot tell whether it is reading a
+    fragment or a complete short date, and it cannot tell whether four is few.
+    "6 of a possible 16" is the whole basis on which it is being asked to
+    scale its confidence, so it is given as a fact rather than left to be
+    inferred from the page in front of it — the same reason `partial` is said
+    out loud rather than hoped for.
+    """
     body = (
         f"A date between {user_name} and {candidate_name}, at {setting_name}.\n\n"
         f"{user_name} is described as: "
         + (", ".join(user_labels) or "(no traits recorded)")
         + f"\n{candidate_name} is described as: "
         + (", ".join(candidate_labels) or "(no traits recorded)")
+        + f"\n\nHOW MUCH THERE IS: they took {turns} "
+        + ("turn" if turns == 1 else "turns")
+        + f" between them. A date here runs to at most {TURN_CAP} turns, so "
+        "this is "
+        + _depth_phrase(turns)
+        + ". Judge what is in front of you and set your confidence accordingly."
     )
     if partial:
         # Said out loud, because a judge that does not know the transcript was
@@ -210,6 +250,22 @@ def build_judge_request(
         + transcript
         + "\n\nScore this date against the four criteria and report what you found."
     )
+
+
+def _depth_phrase(turns: int) -> str:
+    """Words for the fraction, because a model reads "3 of 16" and a model
+    reads "barely started" differently, and the second one is the instruction.
+
+    Deliberately coarse — three bands, derived from `TURN_CAP` rather than
+    written as literals, so raising the cap does not silently turn "a full
+    evening" into a third of one. The judge is being told which of three
+    situations it is in, not handed a precision it cannot use.
+    """
+    if turns >= TURN_CAP * 0.75:
+        return "a full evening"
+    if turns >= TURN_CAP * 0.3:
+        return "a real but partial evening"
+    return "barely started — a handful of lines, no more"
 
 
 # --- Judging one date ------------------------------------------------------
@@ -260,13 +316,15 @@ async def judge_date(
     if not is_judgeable(date.status, turns):
         # Logged rather than skipped silently: "this date was excluded from the
         # score" is a fact the results screen has to be able to state (AC4).
+        # It should now be rare — since 2026-09-02 the only date this catches
+        # is one where nobody spoke at all.
         log_event(
             logger, "date_not_judged", level=logging.WARNING,
             date_id=str(date.id), analysis_id=str(date.analysis_id),
             status=date.status, messages=len(messages), turns=turns,
             threshold=JUDGEABLE_MIN_TURNS, counted="agent turns, not rows",
-            reason="too few turns to be a date"
-            if date.status == "incomplete"
+            reason="nobody said anything — there is no transcript to judge"
+            if date.status in ("complete", "incomplete")
             else f"status is {date.status}",
         )
         return None
@@ -298,12 +356,13 @@ async def judge_date(
                         user_labels=await _trait_labels(session, owner.id),
                         candidate_labels=await _trait_labels(session, candidate.id),
                         partial=partial,
+                        turns=turns,
                     ),
                 )
             ],
             temperature=JUDGE_TEMPERATURE, max_tokens=JUDGE_MAX_TOKENS,
         ),
-        JUDGE_RUBRIC_V1,
+        JUDGE_RUBRIC_V2,
     )
 
     criteria = {k: result[k] for k in WEIGHTS}
@@ -313,6 +372,10 @@ async def judge_date(
         clicked=result["clicked_subjects"], clashes=result["clashes"],
         per_peer=result["per_peer_summary"], verdict=result["verdict_summary"],
         date_score=score, is_partial=partial,
+        # Stored beside the score, never folded into it. See the module note:
+        # a single number meaning both "how it went" and "how much we saw" is
+        # a number nobody can read.
+        confidence=result["confidence"], evidence_note=result["evidence_note"],
         judge_provider=provider.name, judge_model=model,
         rubric_version=RUBRIC_VERSION,
     ))
@@ -326,6 +389,10 @@ async def judge_date(
         # The raw criteria AND the derived score, so the arithmetic is
         # checkable straight from the log without opening the database (§7).
         criteria=criteria, date_score=round(score, 2),
+        # Beside the score on the same line, because "92 on a full evening" and
+        # "92 on four turns" are different facts and the log is where the
+        # difference has to be visible without opening the database (§7).
+        confidence=result["confidence"], depth=_depth_phrase(turns),
         clashes=len(result["clashes"]), clicked=len(result["clicked_subjects"]),
     )
     return JudgeOutcome(
