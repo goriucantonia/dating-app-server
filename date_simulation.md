@@ -6,14 +6,16 @@ Status: planning locked 2026-09-01. Depends on: `candidate_matching.md` (analysi
 
 ## 1. Purpose
 
-For a `matched` analysis: generate date scenarios per candidate, run the turn-by-turn agent-vs-agent simulations with event injection and per-turn state tracking, survive failures via checkpointing, then judge every completed date and compute per-candidate match scores. Drives `analyses.status` from `matched → simulating → complete | failed`.
+For a `matched` analysis: draw ONE date scenario at random and run every candidate against it, run the turn-by-turn agent-vs-agent simulations with event injection and per-turn state tracking, survive failures via checkpointing, then judge every completed date and compute per-candidate match scores. Drives `analyses.status` from `matched → simulating → complete | failed`.
 
 ## 2. Core features and async operation
 
 - **Everything is a background pipeline.** `POST /analyses/{id}/simulate` returns immediately; the pipeline runs as an in-process asyncio task. **No Celery/Redis this phase** *(trade: a server restart kills in-flight tasks; accepted because every turn is checkpointed in Postgres and a startup reconciliation pass re-launches any analysis stuck in `simulating` — the work resumes, only the process-local task is lost)*.
 - **Sequential execution, one date at a time,** one active simulation per user (enforced upstream). Free-tier rate limits make parallel dates counterproductive — parallelism would just spread the same throughput across more 429s. Global semaphore of 2 concurrent pipelines across all users.
-- **Scenario generation** (one structured AI call per candidate): input = `shared_interests` + both users' interest traits; output = **1 setting** `{setting_name, description, sensory_details, anchored_in_interest, possible_events[4-6]}`. **Empty-intersection fallback** (flagged open in `candidate_matching.md`): when `shared_interests` is empty, the setting is built around the **candidate's** interests — matching the Source of Truth's "aligned with at least one of the individuals."
-  - **REVISED 2026-09-01 (owner decision).** This read "2 distinct settings" and "one setting anchored in each person's interests (one date 'hers', one 'his')", because the cap was two dates per candidate. The owner changed that to **one date per candidate**, which made the two-settings instruction impossible to state. The fallback anchors on the CANDIDATE because a requester working through a full pool then sees three different people's worlds rather than three versions of their own. Schema bumped to `date_scenarios.v2`.
+- **Scenario generation** (one structured AI call per **ANALYSIS**): input = **one archetype drawn at random in code** from the catalogue in `app/date_archetypes.py`; output = **1 setting** `{setting_name, description, sensory_details, archetype, possible_events[4-6]}`, stored on `analyses.scenarios` and copied onto every date. **Every candidate in the analysis is run against the same setting.** The call receives no names, no ages, no interests and no traits — the fixture is deliberately nobody's.
+  - **REVISED 2026-09-02 (owner decision): one random scenario per analysis, identical across all candidates.** It used to be one call per candidate, anchored in that pair's shared interests, with an empty-intersection fallback that built the evening around the candidate's world. Three candidates therefore got three different evenings, and `candidate_scores` then ranked those three numbers side by side as if they were the same measurement — they were not. A judge scoring `conversational_flow` at a car meet and at a bookshop is running two experiments and reporting one league table. The requirement is a **controlled comparison**: same fixture, three different people, so the differences in the scores are differences between the PEOPLE.
+  - **Cost of the change, named:** nobody gets an evening built around their own interests any more. That is the price of a comparison that means anything, and it is the reason the anchor moved from interests to a neutral archetype — anchoring on anyone would hand one candidate a home fixture and the score would measure the anchor.
+  - **The draw is in code, not in the model.** A model asked for "a first date setting" produces a coffee shop, then a wine bar, then a coffee shop again; temperature does not fix that. The catalogue is 16 written-down archetypes and the last `RECENT_ARCHETYPES_AVOIDED = 3` a user has had are excluded from their next draw, so a repeat inside four consecutive analyses is impossible rather than merely unlikely. The model still echoes the drawn key back into `archetype`, and `generate_scenarios` verifies and repairs it — provenance, not trust (§9). Schema bumped to `date_scenarios.v3`; `anchored_in_interest` is gone and `archetype` replaced it.
 - **Turn loop per date** (cap: **16 agent turns, 8 each** — REVISED 2026-09-01, owner decision; was 30 messages total counting environment rows):
   1. Compose agent context: their frozen persona snapshot's system prompt + scenario description + a date-role preamble ("you are on a first date with…") + full transcript so far (a whole date is at most 19 rows and fits any context window with room to spare — no summarization needed inside a date).
   2. One structured call → `agent_response.v1` through the Structured Output Guard.
@@ -37,7 +39,8 @@ For a `matched` analysis: generate date scenarios per candidate, run the turn-by
 ## 3. Data flow and database
 
 ```
-analyses(matched) ─► scenario gen (1 call/candidate) ─► dates(pending)
+analyses(matched) ─► scenario gen (1 call/ANALYSIS, random archetype) ─► dates(pending)
+  └► analyses.scenarios  ── copied onto every candidate's date row
   └► per date: turn loop ──checkpoint every message──► date_messages
         └► judge (1 call/date) ─► date_evaluations ─► candidate_scores ─► analyses(complete)
 ```
@@ -100,6 +103,11 @@ CREATE TABLE candidate_scores (
 );
 
 -- analyses (from candidate_matching.md) gains:  progress JSONB
+--                                             scenarios JSONB  -- the ONE fixture
+--   every candidate in the analysis is run against (migration 0011, 2026-09-02).
+--   A JSONB array, one entry per date each candidate gets. NULL on analyses that
+--   ran before the shared fixture existed -- they genuinely had none, and no
+--   backfill is attempted because writing one would be inventing history.
 ```
 
 Resume logic: on pipeline (re)start, for each date by status — `pending` → run from scratch; `running` → continue from `max(seq)` (the transcript is the state; nothing else to restore); `complete/incomplete` with no evaluation → judge it. Idempotent by construction: re-running a finished stage is a no-op because the rows already exist.
@@ -146,9 +154,9 @@ Logging obligations (§7): every turn logs date_id/seq/provider/model/attempt/ou
 2. Natural ending via mutual `wants_to_end`; hard cap otherwise.
 3. Checkpoint-per-message; resume semantics; incomplete-date policy (≥10 agent TURNS → judged as partial at 0.5 weight, else excluded; revised from rows 2026-09-01).
 4. `judge_rubric.v1` criteria and the code-side scoring formula, verbatim.
-5. Scenario generation contract incl. empty-intersection fallback.
+5. Scenario generation contract: **one random archetype per analysis, the same setting for every candidate**, drawn in code from `app/date_archetypes.py`, with no personal detail in the call (REVISED 2026-09-02, owner decision — was one interest-anchored call per candidate with an empty-intersection fallback; both are gone, along with `anchored_in_interest`).
 6. In-process tasks, sequential execution, polling.
-7. Full schema: `dates`, `date_messages`, `date_evaluations`, `candidate_scores`, `analyses.progress`.
+7. Full schema: `dates`, `date_messages`, `date_evaluations`, `candidate_scores`, `analyses.progress`, `analyses.scenarios`.
 
 ## Open for the next module (Chat)
 

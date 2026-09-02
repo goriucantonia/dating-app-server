@@ -17,10 +17,17 @@ wants to leave and the other does not.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from datetime import date
 
-from app.schemas.date_scenarios import SETTINGS_PER_CANDIDATE
+from app.date_archetypes import (
+    ARCHETYPES,
+    ARCHETYPES_BY_KEY,
+    RECENT_ARCHETYPES_AVOIDED,
+    pick_archetype,
+)
+from app.schemas.date_scenarios import SETTINGS_PER_ANALYSIS
 from app.simulation import (
     CLOSING_TURNS,
     DATES_PER_CANDIDATE,
@@ -308,7 +315,7 @@ class FakeDate:
             "setting_name": "the Sunday car meet at the docks",
             "description": "Rows of half-finished projects on the tarmac.",
             "sensory_details": "Cold air, petrol, someone's radio.",
-            "anchored_in_interest": "restores old cars",
+            "archetype": "flea_market",
             "possible_events": ["a vintage Mustang pulls up"],
         }
     )
@@ -347,76 +354,98 @@ def test_the_closing_instruction_appears_only_while_closing():
     assert "winding down" in compose_system_prompt(ctx, USER, closing=True)
 
 
-# --- The scenario request, both branches (S11-B2, B3) ----------------------
+# --- The scenario request (S11-B2, B3; rewritten 2026-09-02) ---------------
+#
+# What used to be here: four tests over `build_scenario_request`'s two
+# branches — shared interests, and the empty-intersection fallback that decided
+# whose world the evening was built in. Both branches are gone. The scenario is
+# now drawn from a catalogue and generated once for the whole analysis, so
+# there are no interests in the call at all and nothing left to fall back to.
+#
+# The tests below replace them, and they test the property the owner actually
+# asked for: the same evening for every candidate, a different one next time.
 
 
-@dataclass
-class FakeTrait:
-    label: str
-    description: str = "they do this a lot"
-
-
-def test_a_shared_interest_drives_the_setting():
-    body = build_scenario_request(
-        user_name="Alice", candidate_name="Dan",
-        user_interests=[FakeTrait("restores old bicycles")],
-        candidate_interests=[FakeTrait("restores old bicycles")],
-        shared=["restores old bicycles"],
-    )
-    assert "They share these interests: restores old bicycles" in body
-    assert "Build the setting around something they share" in body
+def test_the_request_carries_the_archetype_and_asks_for_the_key_back():
+    """The archetype is chosen in CODE and echoed by the model, which is what
+    makes "this analysis ran the cinema fixture" checkable afterwards rather
+    than merely asserted (§9)."""
+    body = build_scenario_request([ARCHETYPES_BY_KEY["cinema"]])
+    assert "ARCHETYPE: cinema" in body
+    assert ARCHETYPES_BY_KEY["cinema"].premise in body
+    assert "`cinema`" in body
     assert "Produce exactly 1 setting." in body
 
 
-def test_the_empty_intersection_fallback_anchors_on_the_candidate():
-    """S11-B3, closed in date_simulation.md §2 and NOT left to the model's
-    judgement: handed two lists and no instruction, a model averages them into
-    a setting that belongs to neither person.
+def test_the_request_contains_nothing_about_either_person():
+    """The fixture is the CONTROL VARIABLE. Every fact about a person that
+    reaches this call is a fact that could tilt the evening towards one
+    candidate, and the whole design rests on it not being tilted.
 
-    REVISED 2026-09-01 with the move to one date per candidate. The old rule
-    was "one setting hers, one his", which needs two settings. With one
-    evening it is built around the CANDIDATE's world, so that a requester
-    working through a full pool is shown three different lives rather than
-    three versions of their own.
+    Written as an absence test on purpose: this is a property that decays by
+    someone helpfully adding a parameter, and an absence nobody checks is an
+    absence that does not last.
     """
-    body = build_scenario_request(
-        user_name="Alice", candidate_name="Dan",
-        user_interests=[FakeTrait("sea swimming")],
-        candidate_interests=[FakeTrait("competitive chess")],
-        shared=[],
-    )
-    assert "share NO interests" in body
-    assert "Build the setting around one of Dan's" in body
-    assert "Dan gets the evening in their own" in body
+    body = build_scenario_request([ARCHETYPES_BY_KEY["hill_walk"]])
+    for leak in ("interest", "Alice", "Dan", "traits", "is into", "they share"):
+        assert leak.lower() not in body.lower(), leak
 
 
-def test_the_fallback_offers_only_the_candidates_interests_to_anchor_on():
-    """The anchor vocabulary is the instruction's teeth. Leaving the
-    requester's interests in the list would quietly re-open the choice the
-    fallback exists to make, and the model would take it."""
-    body = build_scenario_request(
-        user_name="Alice", candidate_name="Dan",
-        user_interests=[FakeTrait("sea swimming")],
-        candidate_interests=[FakeTrait("competitive chess")],
-        shared=[],
-    )
-    vocabulary = body.split("copied word for word from this list")[1]
-    assert "competitive chess" in vocabulary
-    assert "sea swimming" not in vocabulary
+def test_every_archetype_in_the_catalogue_can_be_asked_for():
+    """The catalogue is data and data goes stale. Each entry needs a key, a
+    readable name and a premise with something in it — an entry that is only
+    half filled in produces a scenario call with a blank instruction in it and
+    nothing anywhere says so."""
+    assert len(ARCHETYPES) == len(ARCHETYPES_BY_KEY)
+    for archetype in ARCHETYPES:
+        assert archetype.key and archetype.key.islower()
+        assert archetype.name
+        assert len(archetype.premise) > 80, archetype.key
+        body = build_scenario_request([archetype])
+        assert f"ARCHETYPE: {archetype.key}" in body
 
 
-def test_the_anchor_vocabulary_is_the_shared_list_when_there_is_one():
-    body = build_scenario_request(
-        user_name="Alice", candidate_name="Dan",
-        user_interests=[FakeTrait("sea swimming"), FakeTrait("restores old bicycles")],
-        candidate_interests=[FakeTrait("restores old bicycles")],
-        shared=["restores old bicycles"],
-    )
-    vocabulary = body.split("copied word for word from this list")[1]
-    assert "restores old bicycles" in vocabulary
-    # `sea swimming` is Alice's alone, so anchoring a "shared" setting on it
-    # would be the fabricated common ground the matching module forbids.
-    assert "sea swimming" not in vocabulary
+# --- The draw (2026-09-02) -------------------------------------------------
+
+
+def test_the_draw_avoids_what_this_user_just_had():
+    """The direct answer to "am I getting the same date every time".
+
+    Whether the model's prose varies is a matter of temperature and cannot be
+    promised; whether the DRAW repeats is decided in code, and this is where
+    it is decided.
+    """
+    everything_but_one = [a.key for a in ARCHETYPES if a.key != "aquarium"]
+    rng = random.Random(1)
+    for _ in range(20):
+        assert pick_archetype(rng, avoid=everything_but_one).key == "aquarium"
+
+
+def test_the_draw_repeats_rather_than_raising_when_everything_is_avoided():
+    """The stated fallback (§18). A user who has run more analyses than there
+    are archetypes should get a second cinema date, not an exception halfway
+    through their pipeline."""
+    rng = random.Random(2)
+    everything = [a.key for a in ARCHETYPES]
+    assert pick_archetype(rng, avoid=everything) in ARCHETYPES
+
+
+def test_the_draw_actually_varies():
+    """A `pick_archetype` that always returned the first entry would pass
+    every test above. With 16 entries and 40 draws, seeing only one is a
+    probability of 16^-39 — this is a real check, not a ritual."""
+    rng = random.Random(3)
+    drawn = {pick_archetype(rng).key for _ in range(40)}
+    assert len(drawn) > 1
+    assert drawn <= set(ARCHETYPES_BY_KEY)
+
+
+def test_the_avoided_window_is_smaller_than_the_catalogue():
+    """If these ever crossed, every draw would hit the exhausted-pool fallback
+    and the no-repeat rule would silently stop working — no error, no log line,
+    just cinema every time again."""
+    assert RECENT_ARCHETYPES_AVOIDED < len(ARCHETYPES)
+
 
 
 # --- the caps themselves (revised 2026-09-01) ------------------------------
@@ -424,10 +453,10 @@ def test_the_anchor_vocabulary_is_the_shared_list_when_there_is_one():
 
 def test_one_date_per_candidate_and_three_per_analysis():
     """The owner's revision, pinned. Two constants used to carry this number
-    -- the schema's `SETTINGS_PER_CANDIDATE` and simulation's
+    -- the schema's `SETTINGS_PER_ANALYSIS` and simulation's
     `DATES_PER_CANDIDATE` -- and they had to agree by hand. They are now the
     same object, which is what this first assertion is really checking."""
-    assert DATES_PER_CANDIDATE is SETTINGS_PER_CANDIDATE
+    assert DATES_PER_CANDIDATE is SETTINGS_PER_ANALYSIS
     assert DATES_PER_CANDIDATE == 1
     # Matching caps the pool at 3, so 3 dates is the ceiling -- but it is
     # written down here rather than inherited, so it still binds if matching

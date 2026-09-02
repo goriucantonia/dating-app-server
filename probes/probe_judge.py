@@ -18,6 +18,11 @@ judge model and `judge_rubric.v1` (AC6), an empty `clashes` array is accepted
 as a verdict rather than retried into producing something (AC5, §10), and
 `DateDigest` compiles from stored evaluations with no new AI call (S12-B11).
 
+**Added 2026-09-02:** every candidate in one analysis must have run the SAME
+setting. That is what makes their scores comparable at all, and it is checked
+here because it is the one property no unit test can see — it is a fact about
+stored rows, not about a function.
+
 **Why part of this runs in-process**, unlike most probes here: judging is
 IDEMPOTENT by design — `date_evaluations.date_id` is a primary key, and the
 pipeline returns the stored score rather than re-judging. That is a feature,
@@ -187,6 +192,26 @@ async def main() -> int:
                 d["evaluation"] is None and d["turn_count"] < 10,
                 f"status={d['status']}, {d['message_count']} rows of which "
                 f"{d['message_count'] - d['turn_count']} were events",
+            )
+
+        # --- 2026-09-02: the shared fixture ---------------------------------
+        for analysis in analyses:
+            payload = (
+                await client.get(
+                    f"/analyses/{analysis['id']}/dates",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            ).json()
+            fixture = payload.get("fixture")
+            if fixture is None:
+                continue  # ran before the shared fixture existed
+            settings_seen = {d["setting_name"] for d in payload["dates"]}
+            check(
+                "every candidate in an analysis was run against the SAME "
+                "evening — which is the only thing that makes their scores "
+                "comparable",
+                settings_seen <= {fixture["setting_name"]},
+                f"fixture {fixture['archetype']!r}: {sorted(settings_seen)}",
             )
 
     # --- AC1 half one: the same transcript judged twice --------------------

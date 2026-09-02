@@ -301,6 +301,20 @@ class Analysis(Base):
     # lets the survivor's screen say "one person removed their account"
     # instead of silently showing two where there were three.
     candidate_count: Mapped[int | None] = mapped_column(Integer)
+    # The ONE fixture every candidate in this analysis is run against
+    # (migration 0011, 2026-09-02). A JSONB array of generated settings, one
+    # per date each candidate gets — `SETTINGS_PER_ANALYSIS` of them.
+    #
+    # It lives on the ANALYSIS rather than being inferred from whichever date
+    # happened to be created first, because "all three ran the same evening" is
+    # the property the comparison rests on, and a property nothing stores is a
+    # property nothing can enforce. `dates.scenario` still holds each date's own
+    # copy — see `ensure_dates` for why both.
+    #
+    # NULL means the draw has not happened yet, which is a real state (matching
+    # finished, simulation has not started) and is why `none_as_null=True` is
+    # here for the same reason `date_messages.state` has it (D-011).
+    scenarios: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _created_at()
 

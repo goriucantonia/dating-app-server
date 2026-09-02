@@ -45,6 +45,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.ai.base import AIError, GenRequest, Message
 from app.ai.routing import TaskRouter
 from app.ai.structured import guarded_structured_call
+from app.date_archetypes import (
+    ARCHETYPES,
+    RECENT_ARCHETYPES_AVOIDED,
+    Archetype,
+    pick_archetype,
+)
 from app.logging_setup import log_event
 from app.matching import MAX_CANDIDATES
 from app.models import (
@@ -53,12 +59,11 @@ from app.models import (
     DateMessage,
     PersonaSnapshot,
     SimulatedDate,
-    Trait,
     User,
 )
 from app.persona import get_current_snapshot
 from app.schemas.agent_response import AGENT_RESPONSE_V1, SCHEMA_VERSION
-from app.schemas.date_scenarios import DATE_SCENARIOS_V2, SETTINGS_PER_CANDIDATE
+from app.schemas.date_scenarios import DATE_SCENARIOS_V3, SETTINGS_PER_ANALYSIS
 from app.users import compute_age
 
 logger = logging.getLogger("app.simulation")
@@ -86,9 +91,10 @@ TURN_CAP = 16
 # REVISED 2026-09-01 (owner decision): ONE date per candidate, not two. A, B
 # and C get one evening apiece.
 #
-# Derived from the schema's `SETTINGS_PER_CANDIDATE` rather than written out
-# again: one generated setting IS one date, and two constants that must agree
-# are two constants that will eventually disagree.
+# Derived from the schema's `SETTINGS_PER_ANALYSIS` rather than written out
+# again: every candidate goes on one date per fixture, so N fixtures IS N dates
+# each, and two constants that must agree are two constants that will
+# eventually disagree.
 #
 # The cost of the change, named because it is real: with two dates each, a
 # candidate's score was the mean of two independent readings, and one strange
@@ -96,11 +102,11 @@ TURN_CAP = 16
 # not — a single date now fully determines a candidate's score. Cheaper (a
 # full pool drops from ~177 model calls to ~90) and faster, at the price of a
 # noisier number.
-DATES_PER_CANDIDATE = SETTINGS_PER_CANDIDATE
+DATES_PER_CANDIDATE = SETTINGS_PER_ANALYSIS
 # DERIVED, 2026-09-01, and it used to be the literal 3. The old comment said a
 # cap that only holds because another module is small is not a cap — true, but
 # a cap written as a literal beside a knob is worse: raising
-# SETTINGS_PER_CANDIDATE to 2 would have produced 3 candidates wanting 6 dates
+# SETTINGS_PER_ANALYSIS to 2 would have produced 3 candidates wanting 6 dates
 # against a ceiling of 3, and `ensure_dates` would have stopped after the
 # second candidate and given the third NONE. Silently, with a log line nobody
 # was looking for.
@@ -302,17 +308,20 @@ def pick_event(possible: list[str], used: list[str]) -> str | None:
 # --- Prompts ---------------------------------------------------------------
 
 SCENARIO_SYSTEM_PROMPT = """\
-You invent places for two people to meet on a first date. You are given what \
-each of them is into. You produce settings that give them something concrete \
-to do and to react to — never a blank room with two chairs.
+You write the setting for a first date. You are handed ONE archetype — a kind \
+of place, already chosen for you — and your job is to turn it into a specific \
+evening: a real room with real noise in it, something to do, and something to \
+have an opinion about.
 
-A good setting does three things: it belongs to at least one of their real \
-interests, it gives them something to look at and touch, and it can be \
-interrupted. Nothing you invent may state a fact about either person that you \
-were not given.
+This setting will be used for SEVERAL DIFFERENT PAIRS of people, so it has to \
+work for any two strangers. Name nobody. Assume nothing about who is coming: \
+not that they like this kind of place, not that either of them has been \
+before, not that either of them suggested it. Write it as somewhere they have \
+both simply turned up.
 
-They get one evening together, so make it the RIGHT one — the place these two \
-particular people would actually end up, not a place any two people could."""
+A good setting gives them something to look at and touch, something they could \
+easily disagree about, and it can be interrupted. Stay inside the archetype \
+you were given — you are making it vivid, not choosing it."""
 
 DATE_PREAMBLE = """\
 
@@ -342,108 +351,77 @@ You are both winding down now. Say your goodbye the way you would actually say \
 it — do not start a new subject."""
 
 
-# --- Scenario generation (S11-B2, B3) --------------------------------------
+# --- Scenario generation (S11-B2, B3; rewritten 2026-09-02) ----------------
+#
+# REVISED 2026-09-02 (owner decision): ONE scenario per ANALYSIS, drawn at
+# random from `app/date_archetypes.py`, run identically against every
+# candidate. That module's docstring carries the full argument; the short
+# version is that per-candidate scenarios produced three numbers that were
+# never measured the same way, and `candidate_scores` then ranked them side by
+# side as if they had been.
+#
+# What went away with it, named here because it was load-bearing and someone
+# will come looking: `_interest_traits`, `_interest_block`, and the
+# empty-intersection fallback that decided whose world an evening was built in.
+# There is no intersection left to be empty — the fixture is deliberately
+# nobody's. The scenario call no longer reads a single trait.
 
 
-async def _interest_traits(session: AsyncSession, user_id: uuid.UUID) -> list[Trait]:
-    return list(
-        (
-            await session.execute(
-                select(Trait)
-                .where(
-                    Trait.user_id == user_id,
-                    Trait.category == "interest",
-                    Trait.status != "retracted",
-                )
-                .order_by(Trait.label)
-            )
-        ).scalars()
-    )
+async def recent_archetypes(
+    session: AsyncSession, user_id: uuid.UUID, limit: int
+) -> list[str]:
+    """The archetype keys from this user's last `limit` analyses that got as
+    far as drawing one.
 
-
-def _interest_block(heading: str, traits: list[Trait]) -> str:
-    if not traits:
-        return f"{heading}\n  (nothing recorded yet)"
-    lines = [heading]
-    lines.extend(f"  - {t.label}" for t in traits)
-    lines.append("  For colour, what each of those means:")
-    lines.extend(f"    {t.label}: {t.description}" for t in traits)
-    return "\n".join(lines)
-
-
-def build_scenario_request(
-    *,
-    user_name: str,
-    candidate_name: str,
-    user_interests: list[Trait],
-    candidate_interests: list[Trait],
-    shared: list[str],
-) -> str:
-    """The user message for the scenario call — including the
-    **empty-intersection fallback** (S11-B3).
-
-    The fallback was flagged open in `candidate_matching.md` and closed in
-    `date_simulation.md` §2, and it is written here as a DIFFERENT INSTRUCTION
-    rather than left to the model's judgement. Handed two interest lists and no
-    guidance, a model averages them into a setting that is nobody's — a coffee
-    shop.
-
-    **REVISED 2026-09-01 (owner decision: one date per candidate).** The old
-    fallback read "one setting anchored in HER interests and one in HIS" — an
-    instruction that needs two settings, and that became impossible the moment
-    a candidate got only one date. The Source of Truth asks for a setting
-    "aligned with at least one of the individuals", so with one evening it has
-    to be built around one person's world.
-
-    **It is built around the CANDIDATE's**, and the reason is what a whole
-    analysis looks like from the requester's side: they get one date per
-    candidate, so across a full pool they are shown three different worlds —
-    three people's actual lives — rather than three variations on their own.
-    Anchoring on the requester would spend all three evenings in the same kind
-    of place with different company, which tells them almost nothing about the
-    candidates.
-
-    `anchored_in_interest` records which interest it was, so this stays
-    checkable after the fact rather than merely asserted.
+    This is the half of "not the same date every time" that code can actually
+    guarantee. The other half — that two cinema fixtures a year apart are
+    different cinemas — is the model's job and temperature 0.9 does it well
+    enough. Whether the DRAW repeats is not something a temperature can
+    promise, so it is decided here, against what this user has already had.
     """
-    # What the model may anchor on: what they share, or -- when they share
-    # nothing -- the candidate's own interests, and ONLY those. Offering
-    # both lists here would quietly re-open the choice the fallback exists
-    # to make.
-    anchor_vocabulary = shared or [t.label for t in candidate_interests]
-    head = (
-        f"{user_name} and {candidate_name} are going on a first date.\n\n"
-        + _interest_block(f"{user_name} is into:", user_interests)
-        + "\n\n"
-        + _interest_block(f"{candidate_name} is into:", candidate_interests)
-    )
-
-    if shared:
-        instruction = (
-            "\n\nThey share these interests: "
-            + ", ".join(shared)
-            + ".\n\nBuild the setting around something they share. Set "
-            "`anchored_in_interest` to the shared interest it is built "
-            "around."
+    rows = (
+        await session.execute(
+            select(Analysis.scenarios)
+            .where(Analysis.user_id == user_id, Analysis.scenarios.isnot(None))
+            .order_by(Analysis.created_at.desc())
+            .limit(limit)
         )
-    else:
-        instruction = (
-            "\n\nThey share NO interests at all. Do not split the difference "
-            "and do not invent a common ground they do not have.\n\n"
-            f"Build the setting around one of {candidate_name}'s "
-            f"interests: {candidate_name} gets the evening in their own "
-            f"world, showing it to {user_name}, who has never seen it. "
-            "Set `anchored_in_interest` to the interest it is built around."
-        )
+    ).scalars()
+    keys: list[str] = []
+    for scenarios in rows:
+        for setting in scenarios or ():
+            key = setting.get("archetype")
+            if key:
+                keys.append(key)
+    return keys
 
+
+def build_scenario_request(archetypes: list[Archetype]) -> str:
+    """The user message for the scenario call.
+
+    It contains the archetype and nothing else. No names, no ages, no
+    interests, no trait descriptions — and that absence is the feature, not an
+    oversight. Every fact about a person that reaches this call is a fact that
+    could tilt the fixture towards one candidate, and the fixture is the one
+    thing in this experiment that has to be identical for all three.
+    """
+    blocks = []
+    for archetype in archetypes:
+        blocks.append(
+            f"ARCHETYPE: {archetype.key}\n"
+            f"  ({archetype.name})\n"
+            f"  {archetype.premise}"
+        )
+    plural = len(archetypes) != 1
     return (
-        head
-        + instruction
-        + "\n\n`anchored_in_interest` must be copied word for word from this "
-        "list, and nothing else:\n"
-        + "\n".join(f"  - {a}" for a in anchor_vocabulary)
-        + f"\n\nProduce exactly {SETTINGS_PER_CANDIDATE} "
-        + ("setting." if SETTINGS_PER_CANDIDATE == 1 else "settings.")
+        "Write the setting for a first date, from this archetype:\n\n"
+        + "\n\n".join(blocks)
+        + "\n\nSet `archetype` to the key above, copied exactly: "
+        + ", ".join(f"`{a.key}`" for a in archetypes)
+        + ".\n\nRemember that two people who have never met are about to be "
+        "dropped into this, and that you do not know the first thing about "
+        f"either of them. Produce exactly {len(archetypes)} "
+        + ("settings." if plural else "setting.")
     )
 
 
@@ -451,59 +429,111 @@ async def generate_scenarios(
     session: AsyncSession,
     router: TaskRouter,
     *,
-    user: User,
-    candidate: User,
-    shared: list[str],
+    archetypes: list[Archetype],
 ) -> list[dict]:
-    """One structured call per candidate, returning its setting(s) (S11-B2).
+    """One structured call per ANALYSIS, returning the fixture(s).
 
-    Returns a list because `SETTINGS_PER_CANDIDATE` is a knob, not a constant
-    of nature — it was 2 until 2026-09-01 and the caller slices to it.
+    **The returned `archetype` key is verified, not trusted.** The model is
+    asked to copy back the key it was handed, and a model that paraphrases it
+    to "cinema date" would leave `recent_archetypes` unable to recognise its
+    own vocabulary — the no-repeat rule would quietly stop working, with
+    nothing anywhere saying so. So a mismatch is overwritten with the key that
+    was actually drawn and logged as `archetype_repaired`. The drawn key is the
+    truth here; the model's echo is a check on it (§9).
     """
-    user_interests = await _interest_traits(session, user.id)
-    candidate_interests = await _interest_traits(session, candidate.id)
-
     provider, model = router.resolve(SCENARIO_TASK)
-    body = build_scenario_request(
-        user_name=user.display_name,
-        candidate_name=candidate.display_name,
-        user_interests=user_interests,
-        candidate_interests=candidate_interests,
-        shared=shared,
-    )
     result = await guarded_structured_call(
         provider,
         GenRequest(
             task=SCENARIO_TASK,
             model=model,
             system_prompt=SCENARIO_SYSTEM_PROMPT,
-            messages=[Message(role="user", content=body)],
+            messages=[Message(role="user", content=build_scenario_request(archetypes))],
+            # High, and it is the only variation left inside a fixture: the
+            # archetype is fixed by the draw, so this is what makes THIS
+            # cinema different from the last one.
             temperature=0.9,
             max_tokens=SCENARIO_MAX_TOKENS,
         ),
-        DATE_SCENARIOS_V2,
+        DATE_SCENARIOS_V3,
     )
-    settings = result["settings"]
+    settings = list(result["settings"])[: len(archetypes)]
+
+    for setting, archetype in zip(settings, archetypes, strict=False):
+        if setting.get("archetype") != archetype.key:
+            log_event(
+                logger,
+                "archetype_repaired",
+                level=logging.WARNING,
+                returned=str(setting.get("archetype"))[:200],
+                drawn=archetype.key,
+                reason="the model did not copy the archetype key back verbatim",
+            )
+            setting["archetype"] = archetype.key
 
     log_event(
         logger,
         "scenarios_generated",
-        user_id=str(user.id),
-        candidate_user_id=str(candidate.id),
         provider=provider.name,
         model=model,
-        # The fallback branch is logged, not inferred: "which prompt did this
-        # scenario come from" is the first question when one reads badly.
-        mode="shared_interests" if shared else "empty_intersection_fallback",
-        shared_interests=shared,
+        # The draw is logged as its own fact, beside the settings it produced:
+        # "which archetype did this analysis get, and did it get it twice in a
+        # row" has to be answerable from the log alone (§7, §8).
+        archetypes=[a.key for a in archetypes],
         settings=[
             {
                 "setting_name": s["setting_name"],
-                "anchored_in_interest": s["anchored_in_interest"],
+                "archetype": s["archetype"],
                 "events": len(s["possible_events"]),
             }
             for s in settings
         ],
+    )
+    return settings
+
+
+async def ensure_analysis_scenarios(
+    session: AsyncSession,
+    router: TaskRouter,
+    analysis: Analysis,
+) -> list[dict]:
+    """Draw and generate this analysis's fixture(s), ONCE (S11-B8).
+
+    Idempotent and it has to be: `analyses.scenarios` is what makes the three
+    dates comparable, so a resumed pipeline that redrew would hand the third
+    candidate a different evening from the first two and quietly destroy the
+    only property this design exists to provide. A stored value is returned
+    untouched, without a call and without a draw.
+
+    A replacement candidate added after a rejection (S17) lands here too, and
+    gets the fixture the others already ran. That is the same rule, and it is
+    the case where getting it wrong would be least visible.
+    """
+    if analysis.scenarios:
+        return list(analysis.scenarios)
+
+    avoid = await recent_archetypes(
+        session, analysis.user_id, RECENT_ARCHETYPES_AVOIDED
+    )
+    drawn: list[Archetype] = []
+    for _ in range(SETTINGS_PER_ANALYSIS):
+        # Each draw also avoids what this analysis has already drawn, so a
+        # future SETTINGS_PER_ANALYSIS of 2 cannot produce the same evening
+        # twice in one run.
+        archetype = pick_archetype(_rng, avoid=avoid + [a.key for a in drawn])
+        drawn.append(archetype)
+
+    settings = await generate_scenarios(session, router, archetypes=drawn)
+    analysis.scenarios = settings
+    await session.commit()
+    log_event(
+        logger,
+        "analysis_scenarios_drawn",
+        analysis_id=str(analysis.id),
+        archetypes=[a.key for a in drawn],
+        avoided=avoid,
+        catalogue_size=len(ARCHETYPES),
+        settings=[s["setting_name"] for s in settings],
     )
     return settings
 
@@ -818,15 +848,41 @@ async def ensure_dates(
     session: AsyncSession,
     router: TaskRouter,
     analysis: Analysis,
-    user: User,
     user_snapshot_id: uuid.UUID,
 ) -> list[SimulatedDate]:
-    """Create the dates that do not exist yet, one scenario call per candidate.
+    """Create the dates that do not exist yet — every one of them on the
+    analysis's ONE shared fixture (revised 2026-09-02).
+
+    **The scenario call moved OUT of this loop**, and that is the whole change.
+    It used to run once per candidate, inside the `for`, on that pair's shared
+    interests. It now runs once for the analysis, before the loop, and every
+    date built here copies the same setting. Three candidates, one evening,
+    scores that can be put next to each other.
 
     Idempotent by construction (S11-B8): a candidate who already has their
-    dates is skipped entirely, so a re-launched pipeline neither regenerates a
-    scenario nor spends a call to discover that it did not need to.
+    dates is skipped entirely, and `ensure_analysis_scenarios` returns a stored
+    fixture without a call. A re-launched pipeline neither regenerates nor
+    redraws — and redrawing would be worse than wasteful here, because the
+    candidates who ran before the restart would be left on a fixture the ones
+    after it never saw.
+
+    Raises rather than continuing if the fixture cannot be generated. Under the
+    old design a failed scenario call cost ONE candidate their date and the
+    others carried on; there is nothing left to carry on with now, and
+    `_simulate` turns that into a failed analysis with the reason on it.
     """
+    if not analysis.scenarios:
+        # Said before the call, not after: this is the one stage of the
+        # pipeline where nothing is happening on screen and a whole model call
+        # is in flight. The copy names the shared fixture out loud, because
+        # "the same evening for all three" is the thing that makes the scores
+        # on the results screen mean what they say.
+        await _progress(
+            session, analysis, "scenarios",
+            "Choosing where the dates happen — the same evening for everyone…",
+        )
+    settings = await ensure_analysis_scenarios(session, router, analysis)
+
     candidates = list(
         (
             await session.execute(
@@ -843,7 +899,7 @@ async def ensure_dates(
         if candidate_row.candidate_user_id in have_dates:
             continue
         # S11-B5: the hard ceiling, enforced rather than assumed. Matching caps
-        # at 3 candidates so 6 is what falls out — but a cap that only holds
+        # at 3 candidates so 3 is what falls out — but a cap that only holds
         # because another module happens to be small is not a cap.
         if len(existing) >= MAX_DATES_PER_ANALYSIS:
             log_event(
@@ -859,34 +915,18 @@ async def ensure_dates(
                 select(User).where(User.id == candidate_row.candidate_user_id)
             )
         ).scalar_one()
-        await _progress(
-            session, analysis, "scenarios",
-            f"Working out where you and {candidate.display_name} would meet…",
-            candidate=candidate.display_name,
-        )
-        try:
-            settings = await generate_scenarios(
-                session, router, user=user, candidate=candidate,
-                shared=list(candidate_row.shared_interests or []),
-            )
-        except Exception as exc:  # noqa: BLE001
-            # One candidate's scenarios failing must not take the other
-            # candidates' dates with it. No date row is written: a `dates` row
-            # needs a scenario, and a placeholder scenario would be a fabricated
-            # setting sitting in the database looking real (§10).
-            log_event(
-                logger, "scenario_generation_failed", level=logging.ERROR,
-                analysis_id=str(analysis.id),
-                candidate_user_id=str(candidate.id),
-                error=f"{type(exc).__name__}: {exc}"[:2000],
-            )
-            continue
 
         for ordinal, setting in enumerate(settings[:DATES_PER_CANDIDATE], start=1):
             row = SimulatedDate(
                 analysis_id=analysis.id,
                 candidate_user_id=candidate.id,
                 ordinal=ordinal,
+                # A COPY of the shared fixture, stored per date on purpose. The
+                # transcript and the judge already read `dates.scenario`, and a
+                # date must always be able to say where it happened without
+                # depending on its analysis row still existing or still saying
+                # the same thing — the same rule the frozen snapshot columns
+                # follow.
                 scenario=setting,
                 status="pending",
                 user_snapshot_id=user_snapshot_id,
@@ -901,6 +941,8 @@ async def ensure_dates(
             candidate_user_id=str(candidate.id),
             dates=len(settings[:DATES_PER_CANDIDATE]),
             settings=[s["setting_name"] for s in settings[:DATES_PER_CANDIDATE]],
+            archetypes=[s.get("archetype") for s in settings[:DATES_PER_CANDIDATE]],
+            shared_fixture=True,
         )
 
     return await _dates_of(session, analysis.id)
@@ -977,11 +1019,15 @@ async def _simulate(
                 task=DATE_TASK,
             )
 
-        dates = await ensure_dates(session, router, analysis, user, snapshot.id)
+        dates = await ensure_dates(session, router, analysis, snapshot.id)
         if not dates:
+            # Reachable now only with no candidates to build dates FOR — a
+            # scenario failure raises out of `ensure_dates` and is caught by
+            # `run_pipeline` with the provider's own error text, which is more
+            # use than this sentence would be.
             raise AIError(
-                "no dates could be created — scenario generation failed for "
-                "every candidate",
+                "no dates could be created — the analysis has no candidates "
+                "to send on one",
                 task=SCENARIO_TASK,
             )
 

@@ -75,7 +75,16 @@ class DateOut(BaseModel):
     setting_name: str
     description: str
     sensory_details: str
-    anchored_in_interest: str
+    # The archetype key this analysis drew (`date_archetypes.py`). It is the
+    # SAME on every date of an analysis, and that is the point: it is how a
+    # client can state "all three of these happened at the same place" without
+    # comparing three prose descriptions and hoping.
+    #
+    # Empty on dates created before 2026-09-02, which ran the per-candidate
+    # design and had no archetype. `anchored_in_interest`, the field it
+    # replaced, is no longer shipped — those older rows still carry it in their
+    # stored scenario, and it described a property that no longer exists.
+    archetype: str = ""
     # The whole transcript, environment rows included.
     message_count: int
     # What the two of them actually SAID — the number the judging threshold
@@ -135,6 +144,24 @@ def _evaluation_out(row: DateEvaluation | None) -> EvaluationOut | None:
         verdict_summary=row.verdict, judge_provider=row.judge_provider,
         judge_model=row.judge_model, rubric_version=row.rubric_version,
     )
+
+
+def _fixture_out(scenarios: list | None) -> dict | None:
+    """The analysis's shared fixture, or None when it has none.
+
+    Only the identifying parts: the setting name, the archetype key, and how
+    many evenings each candidate got on it. The prose and the event list are
+    already on every date, and shipping them twice invites a client to render
+    whichever copy it happened to read.
+    """
+    if not scenarios:
+        return None
+    first = scenarios[0]
+    return {
+        "setting_name": first.get("setting_name", ""),
+        "archetype": first.get("archetype", ""),
+        "dates_per_candidate": len(scenarios),
+    }
 
 
 def simulate_refusal(status: str, has_candidates: bool) -> tuple[str, str] | None:
@@ -296,6 +323,15 @@ async def list_dates(
         "analysis_id": str(analysis.id),
         "status": analysis.status,
         "progress": analysis.progress,
+        # The analysis's shared fixture, stated ONCE at the top rather than
+        # left to be inferred from three identical `setting_name`s (2026-09-02).
+        # "They all went to the same place, so these scores compare" is the
+        # claim the whole results screen rests on, and a claim a client works
+        # out by comparing strings is a claim it can get wrong.
+        #
+        # Null for analyses that ran before the shared fixture existed — they
+        # genuinely had none, and their dates each carry their own setting.
+        "fixture": _fixture_out(analysis.scenarios),
         "dates": [
             DateOut(
                 date_id=str(d.id),
@@ -306,7 +342,7 @@ async def list_dates(
                 setting_name=d.scenario.get("setting_name", ""),
                 description=d.scenario.get("description", ""),
                 sensory_details=d.scenario.get("sensory_details", ""),
-                anchored_in_interest=d.scenario.get("anchored_in_interest", ""),
+                archetype=d.scenario.get("archetype", ""),
                 message_count=counts[d.id],
                 turn_count=turns[d.id],
                 error=d.error,

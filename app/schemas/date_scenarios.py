@@ -1,34 +1,43 @@
-"""`date_scenarios.v2` — the ONE AI call per candidate (S11-B2, B3).
+"""`date_scenarios.v3` — the ONE AI call per ANALYSIS (S11-B2, B3; revised).
 
-**REVISED 2026-09-01 (owner decision): one date per candidate, so one setting
-per call.** v1 asked for exactly two, because the caps were two dates per
-candidate. The owner changed that to a single date each — A, B and C get one
-evening apiece rather than two — and the schema follows: `minItems` and
-`maxItems` are now `SETTINGS_PER_CANDIDATE`, which is 1.
+**REVISED 2026-09-02 (owner decision): one scenario per analysis, run
+identically against every candidate.** v2 asked for one setting per CANDIDATE,
+anchored in that pair's shared interests. Three candidates therefore got three
+different evenings, and `candidate_scores` then ranked the three numbers as
+though they were the same measurement. They were not. The requirement now is a
+controlled comparison — same fixture, three different people — so the scenario
+is drawn from `app/date_archetypes.py` and generated once.
 
-Bumped to v2 rather than edited in place, per the registry's own rule. Nothing
-stored referenced v1: `dates.schema_version` records `agent_response.v1` (the
-conversation contract), and a generated setting is stored as a plain JSONB blob
-on `dates.scenario`. So there is no migration and no unreadable old data — the
-bump is bookkeeping that keeps the convention honest, not a rescue.
+Bumped rather than edited in place, per the registry's own rule, and this bump
+is a genuine contract change: `anchored_in_interest` is GONE and `archetype`
+has taken its place. Nothing stored breaks. A generated setting is a plain
+JSONB blob on `dates.scenario` (and now `analyses.scenarios`), and
+`dates.schema_version` records `agent_response.v1` — the conversation contract,
+not this one. Old rows keep their `anchored_in_interest` key and simply have no
+`archetype`; the API reads both with `.get`, so a pre-existing date still
+renders.
 
-`SETTINGS_PER_CANDIDATE` is the ONE place the number lives. `app/simulation.py`
-imports it as its `DATES_PER_CANDIDATE`, because one setting IS one date and
-two constants that must agree are two constants that will eventually disagree.
+**`archetype` is the provenance field, and it is the same idea
+`anchored_in_interest` was.** The draw happens in code; the model is told which
+archetype it drew and must copy the key back word for word. Without that,
+"this analysis ran the cinema fixture" is a claim nobody can check after the
+fact — the exact shape of failure principle §9 forbids, a derived value with no
+provenance. `app/simulation.py` verifies the returned key against the one it
+asked for and repairs it rather than trusting it.
 
-`possible_events` is generated here, with the setting, rather than by a
+**No names, no personal detail — enforced in the schema's own descriptions.**
+This setting is read by three different pairs of people. A description that
+says "Maya has been meaning to come here for weeks" would be false on two of
+the three dates. The generated text has to work for any two strangers, and
+that constraint is what makes the fixture fair rather than merely shared.
+
+`possible_events` is still generated here, with the setting, rather than by a
 mid-date generator (date_simulation.md trade #4). An event drawn from the
-scenario is anchored — "a vintage Mustang pulls up" belongs to the car meet —
-where a generic live generator produces "a waiter walks past" anywhere. It
-also costs one fewer call per event, which at 0.15 per turn is not nothing.
-
-`anchored_in_interest` exists for the **empty-intersection fallback** (S11-B3),
-and it is the reason that fallback is checkable rather than hoped for. When the
-two people share no interest labels at all, the setting has to be built around
-ONE of them, and this field is where the model must name which interest it
-built on. Without it, "anchored in at least one of the individuals" is a claim
-nobody can verify after the fact — exactly the shape of failure principle §9
-forbids: a derived value with no provenance.
+scenario is anchored — "the projector stutters and the reel is rethreaded"
+belongs to the cinema — where a generic live generator produces "a waiter walks
+past" anywhere. It also costs one fewer call per event. Under the shared
+fixture it gains a second job: all three candidates now draw from the SAME
+event list in the same order, so even the interruptions are held still.
 """
 
 from __future__ import annotations
@@ -36,32 +45,37 @@ from __future__ import annotations
 from app.ai.base import VersionedSchema
 from app.schemas import register
 
-# One setting per candidate, 4-6 events each (revised 2026-09-01; see above).
-# `app/simulation.py` derives DATES_PER_CANDIDATE from this — one setting is
-# one date, and the two numbers can never drift apart.
-SETTINGS_PER_CANDIDATE = 1
+# RENAMED as well as revalued (2026-09-02): it was `SETTINGS_PER_CANDIDATE`,
+# and under the shared fixture that name states something false. One setting is
+# now generated for the whole ANALYSIS and every candidate is run against it.
+#
+# `app/simulation.py` still derives `DATES_PER_CANDIDATE` from this, and the
+# derivation is still exactly true: N fixtures means every candidate goes on N
+# dates, one per fixture. Two constants that must agree are two constants that
+# will eventually disagree.
+SETTINGS_PER_ANALYSIS = 1
 MIN_EVENTS = 4
 MAX_EVENTS = 6
 
-DATE_SCENARIOS_V2 = register(
+DATE_SCENARIOS_V3 = register(
     VersionedSchema(
         name="date_scenarios",
-        version=2,
+        version=3,
         json_schema={
             "type": "object",
             "required": ["settings"],
             "properties": {
                 "settings": {
                     "type": "array",
-                    "minItems": SETTINGS_PER_CANDIDATE,
-                    "maxItems": SETTINGS_PER_CANDIDATE,
+                    "minItems": SETTINGS_PER_ANALYSIS,
+                    "maxItems": SETTINGS_PER_ANALYSIS,
                     "items": {
                         "type": "object",
                         "required": [
                             "setting_name",
                             "description",
                             "sensory_details",
-                            "anchored_in_interest",
+                            "archetype",
                             "possible_events",
                         ],
                         "properties": {
@@ -69,16 +83,19 @@ DATE_SCENARIOS_V2 = register(
                                 "type": "string",
                                 "description": (
                                     "A short name for the place, e.g. 'the "
-                                    "Sunday car meet at the docks'."
+                                    "late show at the Roxy'. Name the PLACE. "
+                                    "Never name a person."
                                 ),
                             },
                             "description": {
                                 "type": "string",
                                 "description": (
-                                    "Two or three sentences: where they are, why "
-                                    "they are there, and what they are doing. "
-                                    "Written to be read by both people on the "
-                                    "date, so no private detail about either."
+                                    "Two or three sentences: where they are, "
+                                    "why they are there, and what they are "
+                                    "doing. Written for ANY two people who "
+                                    "have just met — no names, and nothing "
+                                    "that assumes either of them likes this "
+                                    "kind of thing."
                                 ),
                             },
                             "sensory_details": {
@@ -86,16 +103,16 @@ DATE_SCENARIOS_V2 = register(
                                 "description": (
                                     "What the place sounds, smells and looks "
                                     "like. One or two sentences — this is what "
-                                    "gives the conversation something to catch on."
+                                    "gives the conversation something to catch "
+                                    "on."
                                 ),
                             },
-                            "anchored_in_interest": {
+                            "archetype": {
                                 "type": "string",
                                 "description": (
-                                    "The ONE interest this setting is built "
-                                    "around, copied from the interest lists you "
-                                    "were given, word for word. Not a summary, "
-                                    "not a new phrase."
+                                    "The archetype key you were given, copied "
+                                    "back word for word. Not a summary, not a "
+                                    "new phrase, not the readable name."
                                 ),
                             },
                             "possible_events": {
@@ -105,12 +122,14 @@ DATE_SCENARIOS_V2 = register(
                                 "items": {
                                     "type": "string",
                                     "description": (
-                                        "One thing that could happen around them, "
-                                        "written as a sentence both of them would "
-                                        "notice: 'the power cuts out and the room "
-                                        "goes to candlelight'. Something in the "
-                                        "world, never something either person "
-                                        "does or says."
+                                        "One thing that could happen around "
+                                        "them, written as a sentence both of "
+                                        "them would notice: 'the power cuts "
+                                        "out and the room goes to candlelight'. "
+                                        "Something in the world, never "
+                                        "something either person does or says, "
+                                        "and never anything that names either "
+                                        "of them."
                                     ),
                                 },
                             },
