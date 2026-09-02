@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -306,9 +307,20 @@ class Analysis(Base):
 
 class AnalysisCandidate(Base):
     __tablename__ = "analysis_candidates"
+    # `UNIQUE (analysis_id, rank)` is a PARTIAL unique index over the active
+    # rows (migration 0010), not a table-wide constraint: a rejected row keeps
+    # the rank it held when the user saw it, and the seat is re-filled.
     __table_args__ = (
         UniqueConstraint("analysis_id", "candidate_user_id"),
-        UniqueConstraint("analysis_id", "rank"),
+        CheckConstraint("status IN ('active','rejected')"),
+        CheckConstraint("(status = 'rejected') = (rejected_at IS NOT NULL)"),
+        Index(
+            "ux_analysis_candidates_active_rank",
+            "analysis_id",
+            "rank",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -329,6 +341,13 @@ class AnalysisCandidate(Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("persona_snapshots.id"), nullable=False
     )
+    # S17-B1. 'rejected' rows are kept: they are the record of the user's own
+    # decision, and they are how the replacement search knows not to offer the
+    # same person back.
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'active'")
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = _created_at()
 
 

@@ -140,6 +140,79 @@ def _build_facts(user: User) -> str:
     return "\n".join(bits)
 
 
+# The heading `_assemble_prompt` writes immediately before the facts block.
+# It is the seam the identity refresh below cuts on, which is why it is a
+# constant rather than a literal typed twice (§16).
+FACTS_HEADING = "WHO YOU ARE"
+
+
+def facts_block_of(prompt: str) -> str | None:
+    """The `WHO YOU ARE` block as it was frozen into a compiled prompt, or
+    None if this prompt does not have the shape `_assemble_prompt` writes.
+
+    Reading the block back out of the prompt — rather than storing a copy of
+    it in a column — means the two can never disagree. There is one truth
+    about what the agent was told, and it is the prompt itself.
+    """
+    _, sep, rest = prompt.partition(f"\n{FACTS_HEADING}\n")
+    if not sep:
+        return None
+    block, sep2, _ = rest.partition("\n\n")
+    return block if sep2 else None
+
+
+def identity_drifted(user: User, prompt: str | None) -> bool:
+    """D-017. True when the person has edited something the prompt states about
+    them — their name above all — since it was compiled."""
+    if not prompt:
+        return False
+    frozen = facts_block_of(prompt)
+    return frozen is not None and frozen != _build_facts(user)
+
+
+def rewrite_identity(prompt: str, user: User) -> str | None:
+    """Return `prompt` with its identity facts brought up to date, or None if
+    it cannot be done safely.
+
+    **Only the head and the facts block are touched.** The name is replaced in
+    the opening sentence (the two places `_assemble_prompt` puts it) and the
+    facts block is re-rendered from the live user. Everything below is left
+    exactly as it was — the traits, the digest, and above all the verbatim
+    excerpts, which are the person's own words and are not ours to edit. A
+    user who wrote their old name inside an answer keeps it there, because
+    that is what they wrote.
+
+    Returns None rather than guessing when the prompt has no recognisable
+    facts block or no `Name:` line. A caller that gets None must not pretend
+    the identity is fresh.
+    """
+    frozen = facts_block_of(prompt)
+    if frozen is None:
+        return None
+    old_name = next(
+        (
+            line[len("Name: "):].strip()
+            for line in frozen.splitlines()
+            if line.startswith("Name: ")
+        ),
+        None,
+    )
+    if not old_name:
+        return None
+
+    head, sep, rest = prompt.partition(f"\n{FACTS_HEADING}\n")
+    _, sep2, tail = rest.partition("\n\n")
+    if not sep2:
+        return None
+    return (
+        head.replace(old_name, user.display_name)
+        + sep
+        + _build_facts(user)
+        + "\n\n"
+        + tail
+    )
+
+
 def _build_traits_block(traits: list[Trait]) -> str:
     by_category: dict[str, list[Trait]] = {}
     for t in traits:
@@ -426,6 +499,107 @@ async def latest_snapshot(
             .limit(1)
         )
     ).scalar_one_or_none()
+
+
+async def refresh_identity(
+    session: AsyncSession, user: User
+) -> PersonaSnapshot | None:
+    """D-017. Re-issue the current persona with the person's live identity —
+    their name, age, gender, who they're interested in, where they live —
+    and **no model call at all**.
+
+    A rename is not a change of character. The traits, the digest and the
+    voice excerpts are all still exactly right, so re-running the compiler
+    would spend a model call to re-derive things that did not change and, on
+    a bad model day, could come back worse. What is wrong is four lines of
+    stated fact, and those we hold.
+
+    It is a NEW VERSION, not an edit: snapshots are immutable (`trait_persona.md`
+    §4), and a date that already happened must keep pointing at the prompt the
+    agent actually had. The person was called that then. They are not now.
+
+    Returns the new snapshot, or None when nothing had drifted or the current
+    prompt has no recognisable identity block.
+    """
+    current = await get_current_snapshot(session, user.id)
+    if current is None or not current.system_prompt:
+        return None
+    if not identity_drifted(user, current.system_prompt):
+        return None
+    rewritten = rewrite_identity(current.system_prompt, user)
+    if rewritten is None:
+        # Loud, not silent: the prompt shape changed under us and this repair
+        # can no longer be trusted. The agent keeps the old name until a real
+        # recompile, and the log says why.
+        log_event(
+            logger, "persona_identity_refresh_failed", level=logging.ERROR,
+            user_id=str(user.id), snapshot_id=str(current.id),
+            reason="the compiled prompt has no recognisable WHO YOU ARE block",
+        )
+        return None
+
+    snapshot = PersonaSnapshot(
+        user_id=user.id,
+        version=await _next_version(session, user.id),
+        status="ready",
+        system_prompt=rewritten,
+        schema_version=current.schema_version,
+        traits_hash=current.traits_hash,
+        source_trait_ids=list(current.source_trait_ids),
+        digest_model=current.digest_model,
+    )
+    session.add(snapshot)
+    await session.commit()
+    log_event(
+        logger, "persona_identity_refreshed",
+        user_id=str(user.id), from_version=current.version,
+        version=snapshot.version, ai_calls=0,
+        note="identity facts re-stated; traits, digest and voice unchanged",
+    )
+    return snapshot
+
+
+async def refresh_drifted_identities(engine) -> dict[str, int]:
+    """Reconciliation step 5 (D-017). Repair every persona whose stated facts
+    have drifted from its owner's profile.
+
+    This exists because the drift could happen silently before the repair
+    existed: someone who renamed themselves last week has an agent still
+    using the old name, and no future edit of theirs is guaranteed to touch
+    this. Costs nothing — it is string work — so it runs on every boot like
+    the rest of the pass, and logs a no-op when there is nothing to fix.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models import User as UserModel
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    counts = {"checked": 0, "refreshed": 0, "unrepairable": 0}
+    async with factory() as session:
+        users = list((await session.scalars(select(UserModel))).all())
+    for user in users:
+        async with factory() as session:
+            fresh = await session.get(UserModel, user.id)
+            if fresh is None:
+                continue
+            current = await get_current_snapshot(session, fresh.id)
+            if current is None or not current.system_prompt:
+                continue
+            counts["checked"] += 1
+            if not identity_drifted(fresh, current.system_prompt):
+                continue
+            if await refresh_identity(session, fresh) is None:
+                counts["unrepairable"] += 1
+            else:
+                counts["refreshed"] += 1
+    log_event(
+        logger,
+        "reconcile_identities"
+        if counts["refreshed"] or counts["unrepairable"]
+        else "reconcile_identities_noop",
+        **counts,
+    )
+    return counts
 
 
 async def is_stale(

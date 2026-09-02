@@ -103,6 +103,7 @@ Date Simulation consumes `Analysis.candidates` (each carrying its frozen `snapsh
 | `POST /analyses` | Start a run; 409 if this user already has one in `matching`/`simulating` (one active analysis per user — free-tier rate limits make concurrent runs pointless). |
 | `GET /analyses/{id}` | Status, pool_status, candidates with ranks/reasons. The UI's single polling target. |
 | `GET /analyses` | This user's history, newest first (the revisitable-results decision). |
+| `POST /analyses/{id}/candidates/{user_id}/reject` | **S17, added 2026-09-02.** Turn one candidate down while the analysis is still `matched`; the next-best eligible person takes the seat and the whole analysis comes back in the same response. Synchronous — no model call in the normal case, because scoring is arithmetic over embeddings that already exist. 404 `not_a_candidate`; 409 `cannot_reject_now` in every state but `matched`; 409 `last_candidate` when the rejection would leave nobody. |
 
 ## 6. Technical decisions (trades named)
 
@@ -111,6 +112,9 @@ Date Simulation consumes `Analysis.candidates` (each carrying its frozen `snapsh
 3. **Reasons computed, not generated.** Cost: less florid copy. Accepted: a fabricated "you both love hiking" that isn't in the data would be the trust-killer here.
 4. **Candidate snapshots frozen per analysis.** Cost: a candidate's newest self isn't reflected mid-run. Accepted for internal consistency of each analysis.
 5. **One active analysis per user.** Cost: no queuing up runs. Accepted; simplifies state and matches free-tier throughput reality.
+6. **A rejected candidate's row is kept, not deleted** (S17, 2026-09-02). Cost: `analysis_candidates` grows past three rows per analysis, `UNIQUE (analysis_id, rank)` becomes a partial unique index over the active rows, and every read path must filter on `status = 'active'` — one more thing to forget. Accepted for three reasons: the row is the record of a decision the user made (the same rule retracted traits and superseded snapshots follow); it is what stops the replacement search offering back the person just turned down; and `UNIQUE (analysis_id, candidate_user_id)` then makes a re-offer impossible by construction rather than by care.
+7. **Rejection is per-analysis, not a block-list.** Cost: the same person can appear in a later analysis, and someone who wants them gone for good has no way to say so. Accepted for now — a persistent block is a different feature with its own consent questions ("are they told?", "does it work in both directions?"), and inventing it silently inside a swap button would be the wrong place to decide it. Open for a later module.
+8. **Ranks are re-assigned 1..n after a swap.** Cost: the person who was rank 2 can become rank 1 without anything about them changing. Accepted: rank means "ordered by fit" everywhere else in the system, and a stable-but-wrong rank would be a number that quietly stops meaning what it says. The rejected row keeps the rank it held when the user saw it, which is why the unique index is partial.
 
 Logging obligations (§7): the job logs pool size after each filter step (opt-in count → mutual-gender count → mutual-age count → snapshot-ready count), the three scores per selected candidate, and — on `no_candidates` — which filter emptied the pool. That last line is the debugging tool for "why am I getting no matches."
 
@@ -122,6 +126,7 @@ Logging obligations (§7): the job logs pool size after each filter step (opt-in
 4. `profile_embeddings` revision (`kind` column, PK `(user_id, kind)`).
 5. Honest pool handling: `full` / `partial` / `empty`, never padded.
 6. One active analysis per user.
+7. **S17:** a candidate can be rejected only while the analysis is `matched`; the rejected row is kept with `status='rejected'` and `rejected_at`; the seat is re-filled from the same scoring path (`score_pool`) with everyone already offered excluded; ranks are re-assigned by compatibility; a rejection that would leave nobody is refused rather than allowed.
 
 ## Open for the next module (Date Simulation)
 

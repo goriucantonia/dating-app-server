@@ -20,11 +20,21 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.deletion import delete_account
 from app.errors import ApiError
 from app.logging_setup import log_event
+from app.persona import refresh_identity
 from app.security import CurrentUser, DbSession
 from app.users import GENDER_VALUES, UserOut, compute_age
 
 router = APIRouter(tags=["me"])
 logger = logging.getLogger("app.me")
+
+
+# The fields the persona's system prompt states about a person (`_build_facts`).
+# Editing any of them makes the compiled prompt wrong until it is re-issued.
+# Kept beside the patch payload so a new editable identity field is added HERE
+# too, in the same diff, rather than drifting silently (§16).
+IDENTITY_FIELDS = frozenset(
+    {"display_name", "birth_date", "gender", "interested_in", "city", "country"}
+)
 
 
 class MePatch(BaseModel):
@@ -106,6 +116,14 @@ async def patch_me(payload: MePatch, user: CurrentUser, session: DbSession) -> U
     session.add(user)
     await session.commit()
     log_event(logger, "me_patched", user_id=str(user.id), fields=sorted(changes))
+
+    # D-017. The persona's system prompt STATES these facts — "You are <name>",
+    # age, gender, where they live — so editing one here and stopping would
+    # leave every agent introducing the person by a name they no longer use.
+    # Free (no model call) and inline, because a rename that takes effect
+    # "eventually" is the defect this closes.
+    if changes.keys() & IDENTITY_FIELDS:
+        await refresh_identity(session, user)
     return UserOut.from_user(user)
 
 

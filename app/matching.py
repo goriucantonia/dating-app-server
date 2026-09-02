@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -329,33 +330,39 @@ def cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-async def run_matching(
-    session: AsyncSession, router: TaskRouter, analysis: Analysis
-) -> Analysis:
-    """The background job: refresh → filter → score → write."""
-    me = analysis.user_id
-    funnel = FilterFunnel()
+def _candidate_row(
+    analysis_id: uuid.UUID, s: Scored, rank: int
+) -> AnalysisCandidate:
+    """One place that turns a score into a stored candidate, so the first three
+    and a later replacement cannot be built differently (§13/§16)."""
+    return AnalysisCandidate(
+        analysis_id=analysis_id, candidate_user_id=s.user_id, rank=rank,
+        fit_forward=s.fit_forward, fit_backward=s.fit_backward,
+        compatibility=s.compatibility, shared_interests=s.shared,
+        reason_summary=reason_summary(s.fit_forward, s.fit_backward, s.shared),
+        snapshot_id=s.snapshot_id, status="active",
+    )
 
-    if not await refresh_embeddings(session, router, me):
-        analysis.status = "no_candidates"
-        analysis.pool_status = "empty"
-        analysis.candidate_count = 0
-        await session.commit()
-        log_event(
-            logger, "matching_done",
-            level=logging.WARNING, user_id=str(me), analysis_id=str(analysis.id),
-            outcome="no_candidates", emptied_at="requester_not_embeddable",
-            note="the requester has no identity traits to embed yet",
-            **funnel.as_log_fields(),
-        )
-        return analysis
 
-    counts = (await session.execute(_FUNNEL_SQL, {"me": me})).one()
-    funnel.opted_in = counts.n_opt_in
-    funnel.gender_fit = counts.n_gender
-    funnel.age_fit = counts.n_age
-    funnel.snapshot_ready = counts.n_snapshot
+async def score_pool(
+    session: AsyncSession,
+    router: TaskRouter,
+    me: uuid.UUID,
+    *,
+    exclude: frozenset[uuid.UUID] = frozenset(),
+    funnel: FilterFunnel | None = None,
+) -> list[Scored]:
+    """Filter → embed → score → sort, best first. The ONE scoring path.
 
+    `exclude` drops user ids that must not be offered: on a replacement search
+    (S17-B2) that is everyone already on the analysis, rejected ones included,
+    so a rejection cannot hand back the person just turned down.
+
+    The exclusion is applied AFTER the funnel counts, deliberately: the funnel
+    answers "who was eligible", which is a fact about the pool and not about
+    this particular seat. Subtracting rejections from it would make the log
+    say the world shrank when it was the caller that narrowed.
+    """
     rows = (await session.execute(_FILTER_SQL, {"me": me})).all()
     eligible = [(r.id, r.snapshot_id) for r in rows]
 
@@ -385,7 +392,10 @@ async def run_matching(
         }
         if "identity" not in vectors or "preference" not in vectors:
             continue
-        funnel.embedding_fresh += 1
+        if funnel is not None:
+            funnel.embedding_fresh += 1
+        if candidate_id in exclude:
+            continue
         their_traits = await _load_traits(session, candidate_id)
         scored.append(Scored(
             user_id=candidate_id,
@@ -398,16 +408,41 @@ async def run_matching(
         ))
 
     scored.sort(key=lambda s: (-s.compatibility, str(s.user_id)))
+    return scored
+
+
+async def run_matching(
+    session: AsyncSession, router: TaskRouter, analysis: Analysis
+) -> Analysis:
+    """The background job: refresh → filter → score → write."""
+    me = analysis.user_id
+    funnel = FilterFunnel()
+
+    if not await refresh_embeddings(session, router, me):
+        analysis.status = "no_candidates"
+        analysis.pool_status = "empty"
+        analysis.candidate_count = 0
+        await session.commit()
+        log_event(
+            logger, "matching_done",
+            level=logging.WARNING, user_id=str(me), analysis_id=str(analysis.id),
+            outcome="no_candidates", emptied_at="requester_not_embeddable",
+            note="the requester has no identity traits to embed yet",
+            **funnel.as_log_fields(),
+        )
+        return analysis
+
+    counts = (await session.execute(_FUNNEL_SQL, {"me": me})).one()
+    funnel.opted_in = counts.n_opt_in
+    funnel.gender_fit = counts.n_gender
+    funnel.age_fit = counts.n_age
+    funnel.snapshot_ready = counts.n_snapshot
+
+    scored = await score_pool(session, router, me, funnel=funnel)
     chosen = scored[:MAX_CANDIDATES]
 
     for rank, s in enumerate(chosen, start=1):
-        session.add(AnalysisCandidate(
-            analysis_id=analysis.id, candidate_user_id=s.user_id, rank=rank,
-            fit_forward=s.fit_forward, fit_backward=s.fit_backward,
-            compatibility=s.compatibility, shared_interests=s.shared,
-            reason_summary=reason_summary(s.fit_forward, s.fit_backward, s.shared),
-            snapshot_id=s.snapshot_id,
-        ))
+        session.add(_candidate_row(analysis.id, s, rank))
 
     # S9-B7. Never padded.
     if not chosen:
@@ -441,6 +476,164 @@ async def run_matching(
         **funnel.as_log_fields(),
     )
     return analysis
+
+
+# --- S17: rejecting a candidate before the dates run -----------------------
+
+
+def rejection_refusal(status: str) -> tuple[str, str] | None:
+    """Why `POST /analyses/{id}/candidates/{uid}/reject` says no, as
+    (code, message) — or None to proceed. Pure, so the boundary is testable
+    without a database (§18), and it is a narrow one on purpose:
+
+    **Only a `matched` analysis can be re-cast.** Once the dates are running
+    the candidate has a simulated evening attached, and dropping them would
+    either throw away work the user is watching or leave a date pointing at
+    somebody who is no longer in the analysis. `failed` is refused for the
+    same reason `simulate` allows it — a failed run RESUMES from its
+    checkpointed dates, so its cast is already fixed.
+    """
+    if status == "matched":
+        return None
+    return (
+        "cannot_reject_now",
+        {
+            "matching": "We're still working out who fits — give it a moment.",
+            "no_candidates": "There's nobody to turn down yet.",
+            "simulating": (
+                "The dates are already running. Swapping someone out now would "
+                "throw away an evening you're watching happen."
+            ),
+            "complete": (
+                "These dates have already run — this analysis is finished. "
+                "Start a new one to be matched with different people."
+            ),
+            "failed": (
+                "This analysis stopped and would resume with the people it "
+                "already has. Start a new one to change who's in it."
+            ),
+        }.get(status, "You can only change who's in an analysis before the dates run."),
+    )
+
+
+def would_leave_nobody(active_count: int, replacement_found: bool) -> bool:
+    """S17-B3. Turning down your last candidate with nobody to take their place
+    would leave an analysis that can never be simulated — a dead row the UI
+    would then have to explain. Refused, with the reason, rather than allowed
+    and then apologised for."""
+    return active_count <= 1 and not replacement_found
+
+
+def ranked_order(rows: list[AnalysisCandidate]) -> list[AnalysisCandidate]:
+    """Rank means "ordered by fit", and it keeps meaning that after a swap.
+    Same tie-break as `score_pool` (compatibility desc, then user id) so a
+    replacement cannot re-order two people who were already tied."""
+    return sorted(
+        rows,
+        key=lambda c: (-float(c.compatibility), str(c.candidate_user_id)),
+    )
+
+
+@dataclass
+class RejectionOutcome:
+    replacement: Scored | None = None
+    refusal: tuple[str, str] | None = None
+
+
+async def reject_and_replace(
+    session: AsyncSession,
+    router: TaskRouter,
+    analysis: Analysis,
+    rejected_user_id: uuid.UUID,
+) -> RejectionOutcome:
+    """S17-B2. Mark one candidate rejected and give the seat to the next-best
+    eligible person, if there is one.
+
+    **No new AI call in the normal case.** Scoring is vector arithmetic over
+    embeddings that already exist; `refresh_embeddings` returns early when a
+    candidate's `traits_hash` still matches. A rejection only costs a model
+    call when someone in the pool has edited their profile since matching ran —
+    which is exactly when their vector SHOULD be rebuilt.
+    """
+    rows = list(
+        (
+            await session.execute(
+                select(AnalysisCandidate).where(
+                    AnalysisCandidate.analysis_id == analysis.id
+                )
+            )
+        ).scalars()
+    )
+    active = [c for c in rows if c.status == "active"]
+    target = next(
+        (c for c in active if c.candidate_user_id == rejected_user_id), None
+    )
+    if target is None:
+        return RejectionOutcome(
+            refusal=("not_a_candidate", "That person isn't in this analysis.")
+        )
+
+    # Everyone this analysis has already offered — active AND rejected — is out
+    # of the running. Without the rejected ones a second rejection could hand
+    # back the first person turned down.
+    seen = frozenset(c.candidate_user_id for c in rows)
+    scored = await score_pool(session, router, analysis.user_id, exclude=seen)
+    replacement = scored[0] if scored else None
+
+    if would_leave_nobody(len(active), replacement is not None):
+        log_event(
+            logger, "candidate_rejection_refused",
+            analysis_id=str(analysis.id), user_id=str(analysis.user_id),
+            rejected=str(rejected_user_id), reason="would_leave_nobody",
+        )
+        return RejectionOutcome(
+            refusal=(
+                "last_candidate",
+                (
+                    "They're the only person left who fits, and there's nobody "
+                    "waiting to take their place. Start a new analysis instead."
+                ),
+            )
+        )
+
+    target.status = "rejected"
+    target.rejected_at = datetime.now(UTC)
+    remaining = [c for c in active if c is not target]
+
+    if replacement is not None:
+        # Ranks are re-assigned below; this one is parked out of the way so it
+        # cannot collide with a rank still held by a row about to move.
+        row = _candidate_row(analysis.id, replacement, rank=1000)
+        session.add(row)
+        remaining.append(row)
+
+    # Two phases, because the partial unique index is checked per statement:
+    # 2→1 while another row still holds 1 is a violation for the instant it
+    # takes, so every live row goes negative first.
+    for i, c in enumerate(remaining, start=1):
+        c.rank = -i
+    await session.flush()
+    for rank, c in enumerate(ranked_order(remaining), start=1):
+        c.rank = rank
+
+    analysis.candidate_count = len(remaining)
+    analysis.pool_status = (
+        "full" if len(remaining) >= MAX_CANDIDATES else "partial"
+    )
+    await session.commit()
+
+    log_event(
+        logger, "candidate_rejected",
+        analysis_id=str(analysis.id), user_id=str(analysis.user_id),
+        rejected=str(rejected_user_id),
+        replacement=str(replacement.user_id) if replacement else None,
+        replacement_compatibility=(
+            round(replacement.compatibility, 4) if replacement else None
+        ),
+        active_now=len(remaining), pool_status=analysis.pool_status,
+        note=None if replacement else "no eligible person left to take the seat",
+    )
+    return RejectionOutcome(replacement=replacement)
 
 
 async def start_and_run(

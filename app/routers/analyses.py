@@ -3,6 +3,8 @@
 - POST /analyses        — start a run; returns immediately with `matching`
 - GET  /analyses/{id}   — the UI's SINGLE polling target for the whole journey
 - GET  /analyses        — history, newest first
+- POST /analyses/{id}/candidates/{uid}/reject — S17: turn one candidate down
+  before the dates run and give the seat to the next-best person
 
 The 409 on a second run is **state, not failure** (communication_protocol.md
 §5, §17): the caller is told which analysis is already running so it can go
@@ -23,7 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.errors import ApiError
 from app.logging_setup import log_event
-from app.matching import start_and_run
+from app.matching import reject_and_replace, rejection_refusal, start_and_run
 from app.models import Analysis, AnalysisCandidate, CandidateScore, Trait, User
 from app.security import CurrentUser, DbSession
 from app.users import compute_age
@@ -96,7 +98,12 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
         await session.execute(
             select(AnalysisCandidate, User)
             .join(User, User.id == AnalysisCandidate.candidate_user_id)
-            .where(AnalysisCandidate.analysis_id == analysis.id)
+            .where(
+                AnalysisCandidate.analysis_id == analysis.id,
+                # S17-B4: a rejected candidate is kept in the table as the
+                # record of the decision, and is never on the wire again.
+                AnalysisCandidate.status == "active",
+            )
             .order_by(AnalysisCandidate.rank)
         )
     ).all()
@@ -223,6 +230,59 @@ async def get_analysis(
     ).scalar_one_or_none()
     if analysis is None:
         raise ApiError(404, "not_found", "That analysis doesn't exist.")
+    return await _build(session, analysis)
+
+
+@router.post(
+    "/analyses/{analysis_id}/candidates/{candidate_user_id}/reject",
+    response_model=AnalysisOut,
+)
+async def reject_candidate(
+    analysis_id: str,
+    candidate_user_id: str,
+    request: Request,
+    user: CurrentUser,
+    session: DbSession,
+) -> AnalysisOut:
+    """S17-B4. Turn one candidate down before the dates run; the next-best
+    eligible person takes the seat.
+
+    Synchronous, unlike `POST /analyses`: the work is vector arithmetic over
+    embeddings that already exist, so the answer is ready in the same
+    round-trip and the UI can render the new three immediately instead of
+    polling for a swap. If someone in the pool has edited their profile since
+    matching, refreshing their vector can mean one embedding call — the one
+    case where this is slower, and the case where it should be.
+
+    Every refusal is a 409 with a code and a plain sentence, because each of
+    them is a STATE the user should be told about (§5, §17): the dates already
+    started, this is the last person, that person isn't in this analysis.
+    """
+    try:
+        parsed = uuid.UUID(analysis_id)
+        parsed_candidate = uuid.UUID(candidate_user_id)
+    except ValueError as exc:
+        raise ApiError(404, "not_found", "That analysis doesn't exist.") from exc
+    analysis = (
+        await session.execute(
+            select(Analysis).where(Analysis.id == parsed, Analysis.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if analysis is None:
+        raise ApiError(404, "not_found", "That analysis doesn't exist.")
+
+    refusal = rejection_refusal(analysis.status)
+    if refusal is not None:
+        raise ApiError(409, refusal[0], refusal[1])
+
+    outcome = await reject_and_replace(
+        session, request.app.state.ai_router, analysis, parsed_candidate
+    )
+    if outcome.refusal is not None:
+        code, message = outcome.refusal
+        # "That person isn't in this analysis" is a 404 about the candidate,
+        # not a conflict about the analysis.
+        raise ApiError(404 if code == "not_a_candidate" else 409, code, message)
     return await _build(session, analysis)
 
 

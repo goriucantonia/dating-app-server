@@ -86,6 +86,8 @@ CREATE TABLE calibration_messages (
 
 Why snapshots are immutable and versioned: a date transcript must stay explainable forever — "agent said X because snapshot v3 said Y." Recompiling creates v4; old transcripts keep pointing at v3. Staleness is detectable by comparing the snapshot's `traits_hash` to the live one.
 
+**Revised 2026-09-02 (D-017).** `traits_hash` answers "has this person changed as a person"; it was never an answer to "is this prompt still true". The prompt also STATES facts — `You are <name>`, and the `WHO YOU ARE` block with age, gender, interested-in and city — and editing one of those left every agent using the old value silently. Two additions, both of which keep immutability intact: `identity_drifted()` reads the frozen facts block back out of the prompt and compares it to the live user, and `refresh_identity()` issues a **new version** whose head and facts block are re-stated and whose every other byte is carried over unchanged — including the verbatim excerpts, which are the person's own words and are never rewritten. It costs **no model call**: a rename is not a change of character, and re-running the digest would spend a call to re-derive what did not change. Triggered by `PATCH /me` and by reconciliation step 5.
+
 ## 5. Interfaces (module boundary)
 
 ```python
@@ -122,7 +124,7 @@ Logging obligations (§7): compilation logs trait count, source answer IDs, dige
 ## Locked by this document
 
 1. `agent_response.v1` schema, verbatim, including `wants_to_end`.
-2. Snapshot immutability + per-user versioning; staleness via `traits_hash`.
+2. Snapshot immutability + per-user versioning; staleness via `traits_hash` for the persona, and via the frozen facts block for the stated identity (D-017) — a rename re-issues the snapshot for free rather than editing it.
 3. Compilation = deterministic template + one structured AI call for the behavior digest.
 4. Voice mimicry uses verbatim answer excerpts.
 5. `PersonaService` as the only interface downstream modules may use; `None` snapshot = not simulatable.

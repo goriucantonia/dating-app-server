@@ -1,4 +1,4 @@
-"""Startup reconciliation — the four-step pass (S3-B5, S11-B9, S15-B6;
+"""Startup reconciliation — the five-step pass (S3-B5, S11-B9, S15-B6, D-017;
 `data_hygiene.md` §2), in its locked order:
 
 1. Baseline + pool questions (seeds/questions.yaml, generated verbatim from
@@ -7,8 +7,12 @@
 2. Demo profiles (seeds/demo_profiles.yaml) — accounts and answers inline
    through the REAL registration and answer paths; extraction, compilation
    and embedding in a background task through the real pipeline (app/demo.py).
-3. Analyses a restart left in `matching` or `simulating` are relaunched.
-4. Embedding-model consistency: every `profile_embeddings.embedding_model`
+3. Personas whose stated identity has drifted from their owner's profile —
+   somebody renamed themselves and their agent is still introducing itself by
+   the old name (D-017). Repaired by re-issuing the persona with live facts;
+   no model call, because a rename is not a change of character.
+4. Analyses a restart left in `matching` or `simulating` are relaunched.
+5. Embedding-model consistency: every `profile_embeddings.embedding_model`
    must equal the pinned config value; a mismatch is logged loudly and the
    row is marked stale so the next matching run re-embeds it before
    comparing — never compared as-is.
@@ -249,6 +253,7 @@ async def run_full_pass(app, *, inline_demo_pipeline: bool = False) -> dict[str,
     persona built from nothing for its trouble.
     """
     from app.demo import ensure_accounts_and_answers, run_demo_pipeline, start_demo_pipeline
+    from app.persona import refresh_drifted_identities
 
     results: dict[str, dict[str, int]] = {}
     results["questions"] = await reconcile(app.state.engine)
@@ -257,6 +262,9 @@ async def run_full_pass(app, *, inline_demo_pipeline: bool = False) -> dict[str,
         results["demo_pipeline"] = await run_demo_pipeline(app.state.engine, app.state.ai_router)
     else:
         start_demo_pipeline(app.state.engine, app.state.ai_router)
+    # Step 5 (D-017): personas whose stated identity has drifted from their
+    # owner's profile. String work, no model calls — see `refresh_identity`.
+    results["identities"] = await refresh_drifted_identities(app.state.engine)
     results["analyses"] = await relaunch_stuck_analyses(app)
     cfg = app.state.ai_config.embeddings
     results["embeddings"] = await check_embedding_models(
