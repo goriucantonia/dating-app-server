@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIError
@@ -99,7 +100,13 @@ def serialise_traits(traits: list[Trait], categories: tuple[str, ...]) -> str:
     lines: list[str] = []
     for category in categories:
         rows = sorted(
-            (t for t in traits if t.category == category and t.status != "retracted"),
+            # `disputed` is excluded as well: an embedding built from a trait
+            # the person denied ranks them by who the model guessed they
+            # were, not who they said they are (audit 2026-09-02).
+            (
+                t for t in traits
+                if t.category == category and t.status not in ("retracted", "disputed")
+            ),
             key=lambda t: (t.label.casefold(), t.description.casefold()),
         )
         lines.extend(f"{t.label}: {t.description}" for t in rows)
@@ -227,16 +234,26 @@ async def refresh_embeddings(
     identity_vec, preference_vec = vectors[0], vectors[1]
 
     for kind, vec in (("identity", identity_vec), ("preference", preference_vec)):
-        row = rows.get(kind)
-        if row is None:
-            session.add(ProfileEmbedding(
-                user_id=user_id, kind=kind, embedding=vec,
-                embedding_model=f"{provider.name}/{model}", traits_hash=live_hash,
-            ))
-        else:
-            row.embedding = vec
-            row.embedding_model = f"{provider.name}/{model}"
-            row.traits_hash = live_hash
+        # One statement, upsert: two sessions refreshing the same person at
+        # once (the demo boot pipeline and a user pressing analyse in the
+        # same minute) both read "no row" and both inserted, and the second
+        # violated the (user_id, kind) primary key (audit 2026-09-02).
+        values = {
+            "user_id": user_id, "kind": kind, "embedding": vec,
+            "embedding_model": f"{provider.name}/{model}", "traits_hash": live_hash,
+        }
+        stmt = pg_insert(ProfileEmbedding).values(**values)
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["user_id", "kind"],
+                set_={k: stmt.excluded[k] for k in ("embedding", "embedding_model", "traits_hash")},
+            )
+        )
+        stale = rows.pop(kind, None)
+        if stale is not None:
+            # The identity-map copy still carries the old hash; expire it so
+            # a later read in this session goes back to the database.
+            session.expire(stale)
     await session.commit()
 
     log_event(
@@ -422,6 +439,10 @@ async def run_matching(
         analysis.status = "no_candidates"
         analysis.pool_status = "empty"
         analysis.candidate_count = 0
+        # Named on the row, because the wire sentence for `no_candidates`
+        # is "there is no one to match you with" and that is not what
+        # happened here: THIS person has nothing to be matched FROM yet.
+        analysis.progress = {"reason": "requester_not_embeddable"}
         await session.commit()
         log_event(
             logger, "matching_done",
@@ -649,10 +670,25 @@ async def start_and_run(
         await run_matching(session, router, analysis)
     except (AIError, Exception) as exc:  # noqa: BLE001
         # Blind on purpose, same reason as the persona compiler: whatever the
-        # failure is, the row must stop saying "matching".
-        analysis.status = "failed"
-        analysis.error = f"{type(exc).__name__}: {exc}"[:2000]
-        await session.commit()
+        # failure is, the row must stop saying "matching". Rollback first:
+        # if the failure was the session itself (a unique violation on an
+        # embedding row, say) a straight commit() raises out of this handler
+        # and the row stays `matching` — an ACTIVE state, so the user cannot
+        # start another analysis until a restart (audit 2026-09-02).
+        error = f"{type(exc).__name__}: {exc}"[:2000]
+        try:
+            await session.rollback()
+            await session.refresh(analysis)
+            analysis.status = "failed"
+            analysis.error = error
+            await session.commit()
+        except Exception as write_exc:
+            log_event(
+                logger, "matching_status_write_failed", level=logging.ERROR,
+                analysis_id=str(analysis_id), error=error,
+                write_error=f"{type(write_exc).__name__}: {write_exc}"[:500],
+            )
+            raise
         log_event(
             logger, "matching_failed",
             level=logging.ERROR, analysis_id=str(analysis_id),

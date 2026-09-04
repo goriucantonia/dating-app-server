@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 
 from app.answers import save_answer
@@ -44,11 +44,15 @@ class QuestionOut(BaseModel):
     answered: bool
     answer_text: str | None
     answer_updated_at: datetime | None
+    # Which trait a dispute question is about. Without it the client could
+    # not route a disputed card to its own question (audit 2026-09-02).
+    trait_id: str | None = None
 
     @classmethod
     def build(cls, q: Question, a: Answer | None) -> QuestionOut:
         return cls(
             id=str(q.id), origin=q.origin, code=q.code, pool_order=q.pool_order,
+            trait_id=str(q.trait_id) if q.trait_id else None,
             probe_area=q.probe_area, text=q.text,
             answered=a is not None,
             answer_text=a.answer_text if a else None,
@@ -72,7 +76,17 @@ class NextBatchOut(BaseModel):
 
 
 class AnswerIn(BaseModel):
-    answer_text: str = Field(min_length=50)
+    # 4000 like a chat message: every extraction and digest prompt carries
+    # ALL answers, and one enormous one poisoned every downstream call
+    # (audit 2026-09-02). Fifty characters of actual writing, not spaces.
+    answer_text: str = Field(min_length=50, max_length=4000)
+
+    @field_validator("answer_text")
+    @classmethod
+    def _real_writing(cls, v: str) -> str:
+        if len(v.strip()) < 50:
+            raise ValueError("write at least 50 characters")
+        return v
 
 
 def _answerable_filter(user_id: uuid.UUID):

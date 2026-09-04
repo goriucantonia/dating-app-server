@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ai.base import AIError, GenRequest, Message
@@ -692,6 +693,46 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
     provider, model = router.resolve(DATE_TASK)
     possible_events = list(date.scenario.get("possible_events") or [])
 
+    async def _give_up(exc: Exception, seq: int, speaker: str) -> str:
+        """S11-B6. End THIS date at its last good message and let the
+        pipeline carry on to the next one — for a model call the resilience
+        layer and the Guard already gave up on. A DATABASE failure is not
+        this date's to absorb: it is re-raised to the pipeline, whose
+        handler owns the rollback (see below).
+        """
+        if isinstance(exc, SQLAlchemyError):
+            # The SESSION is what failed (a checkpoint under a row that
+            # cascaded away, say). A rollback here would expire every object
+            # the pipeline goes on to read — the analysis, the user, the
+            # other dates — and the next attribute read would raise
+            # MissingGreenlet (review 2026-09-03). Let the pipeline's own
+            # handler roll back, reload and mark the analysis failed; this
+            # date stays `running` and resumes from its last checkpoint.
+            raise exc
+        # A model failure leaves nothing pending: every checkpoint committed.
+        views = to_views(rows)
+        error = f"{type(exc).__name__}: {exc}"[:2000]
+        date.status = "incomplete"
+        date.error = error
+        date.finished_at = datetime.now(UTC)
+        await session.commit()
+        log_event(
+            logger, "date_finished", level=logging.WARNING,
+            date_id=str(date.id), analysis_id=str(date.analysis_id),
+            status="incomplete", ended_by="turn_gave_up", failed_at_seq=seq,
+            speaker=speaker, provider=provider.name, model=model,
+            messages=len(rows),
+            # `judgeable` used to be a threshold comparison here. Since
+            # 2026-09-02 the only thing that can make a date unjudgeable is
+            # having nothing in it, so this line says exactly that and
+            # nothing about how thin the transcript is — that reading now
+            # belongs to the judge, as `confidence`.
+            judgeable=turn_count(views) > 0,
+            turns=turn_count(views),
+            error=error,
+        )
+        return "incomplete"
+
     while True:
         views = to_views(rows)
 
@@ -725,12 +766,15 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
             chosen_event=chosen,
         )
         if inject and chosen is not None:
-            rows.append(
-                await _checkpoint(
-                    session, date.id, seq=len(rows) + 1,
-                    speaker="environment", reply=chosen,
+            try:
+                rows.append(
+                    await _checkpoint(
+                        session, date.id, seq=len(rows) + 1,
+                        speaker="environment", reply=chosen,
+                    )
                 )
-            )
+            except Exception as exc:  # noqa: BLE001
+                return await _give_up(exc, len(rows) + 1, "environment")
             # Back around: the event consumed a message slot, so the cap and
             # the ending both get re-asked before anyone speaks. The
             # no-consecutive rule blocks a second roll from firing.
@@ -752,31 +796,11 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
                 AGENT_RESPONSE_V1,
             )
         except Exception as exc:  # noqa: BLE001
-            # S11-B6. Blind on purpose: the resilience layer and the Guard have
-            # already spent their attempts, and whatever is left — a route that
-            # vanished, a provider returning something nobody imagined — must
-            # end THIS date at its last good message and let the pipeline carry
-            # on to the next one.
-            date.status = "incomplete"
-            date.error = f"{type(exc).__name__}: {exc}"[:2000]
-            date.finished_at = datetime.now(UTC)
-            await session.commit()
-            log_event(
-                logger, "date_finished", level=logging.WARNING,
-                date_id=str(date.id), analysis_id=str(date.analysis_id),
-                status="incomplete", ended_by="turn_gave_up", failed_at_seq=seq,
-                speaker=speaker, provider=provider.name, model=model,
-                messages=len(rows),
-                # `judgeable` used to be a threshold comparison here. Since
-                # 2026-09-02 the only thing that can make a date unjudgeable is
-                # having nothing in it, so this line says exactly that and
-                # nothing about how thin the transcript is — that reading now
-                # belongs to the judge, as `confidence`.
-                judgeable=turn_count(views) > 0,
-                turns=turn_count(views),
-                error=date.error,
-            )
-            return "incomplete"
+            # Blind on purpose: the resilience layer and the Guard have
+            # already spent their attempts, and whatever is left — a route
+            # that vanished, a provider returning something nobody imagined
+            # — ends this date, not the pipeline.
+            return await _give_up(exc, seq, speaker)
 
         state = {
             "state_of_mind": result["state_of_mind"],
@@ -785,13 +809,16 @@ async def run_date(session: AsyncSession, router: TaskRouter, ctx: DateContext) 
             "satisfaction": result["satisfaction"],
             "wants_to_end": result["wants_to_end"],
         }
-        rows.append(
-            await _checkpoint(
-                session, date.id, seq=seq, speaker=speaker,
-                reply=result["reply"], state=state,
-                provider=provider.name, model_id=model,
+        try:
+            rows.append(
+                await _checkpoint(
+                    session, date.id, seq=seq, speaker=speaker,
+                    reply=result["reply"], state=state,
+                    provider=provider.name, model_id=model,
+                )
             )
-        )
+        except Exception as exc:  # noqa: BLE001
+            return await _give_up(exc, seq, speaker)
         log_event(
             logger, "date_turn", date_id=str(date.id),
             analysis_id=str(date.analysis_id), seq=seq, speaker=speaker,
@@ -890,7 +917,14 @@ async def ensure_dates(
         (
             await session.execute(
                 select(AnalysisCandidate)
-                .where(AnalysisCandidate.analysis_id == analysis.id)
+                .where(
+                    AnalysisCandidate.analysis_id == analysis.id,
+                    # S17 keeps a rejected row (old rank and all). Without
+                    # this filter the person the user turned down still got
+                    # a date and, worse, took the seat the cap then denied
+                    # to their replacement (audit 2026-09-02).
+                    AnalysisCandidate.status == "active",
+                )
                 .order_by(AnalysisCandidate.rank)
             )
         ).scalars()
@@ -963,14 +997,73 @@ async def run_pipeline(
     try:
         await _simulate(session, router, analysis)
     except Exception as exc:  # noqa: BLE001
-        analysis.status = "failed"
-        analysis.error = f"{type(exc).__name__}: {exc}"[:2000]
-        await session.commit()
+        error = f"{type(exc).__name__}: {exc}"[:2000]
+        # The session may be the thing that failed. After a flush or commit
+        # error SQLAlchemy refuses every further statement until rollback(),
+        # so a handler that went straight to commit() raised
+        # PendingRollbackError out of its own except block and left the row
+        # saying `simulating` with nobody running it — a 409 for the user
+        # until the next restart (audit 2026-09-02). Roll back first, reload
+        # the row (rollback expires it, and an expired attribute read is
+        # D-014's MissingGreenlet), THEN write the terminal state.
+        try:
+            await session.rollback()
+            await session.refresh(analysis)
+            analysis.status = "failed"
+            analysis.error = error
+            await session.commit()
+        except Exception as write_exc:
+            log_event(
+                logger, "analysis_status_write_failed", level=logging.ERROR,
+                analysis_id=str(analysis_id), error=error,
+                write_error=f"{type(write_exc).__name__}: {write_exc}"[:500],
+            )
+            raise
         log_event(
             logger, "analysis_status", level=logging.ERROR,
             analysis_id=str(analysis_id), status="failed",
-            reason="pipeline_raised", error=analysis.error,
+            reason="pipeline_raised", error=error,
         )
+
+
+async def _reopen_dead_dates(
+    session: AsyncSession, analysis: Analysis, dates: list[SimulatedDate]
+) -> list[SimulatedDate]:
+    """Put an `incomplete` date with NO transcript back to `pending`.
+
+    The give-up ladder marks a date `incomplete` when a turn fails for good.
+    The resume loop treated `incomplete` as finished, so a date the PROVIDER
+    killed (a daily cap at turn 1, say) was never run again: a retry after an
+    outage skipped every such date, counted zero messages, and failed again
+    in milliseconds with no model calls — "pick up where it stopped" was a
+    permanent no-op (audit 2026-09-02). Only a date that was still `running`
+    when the PROCESS died ever resumed.
+
+    A date that has a transcript is left alone: it is judged as partial, and
+    re-running it would throw away a real evening. An empty one has nothing
+    to keep, so it goes round again.
+    """
+    reopened = 0
+    for date in dates:
+        if date.status != "incomplete":
+            continue
+        rows = await _load_messages(session, date.id)
+        if turn_count(to_views(rows)) > 0:
+            continue
+        previous_error = date.error
+        date.status = "pending"
+        date.error = None
+        date.finished_at = None
+        reopened += 1
+        log_event(
+            logger, "date_status", date_id=str(date.id),
+            analysis_id=str(analysis.id), status="pending",
+            reason="reopened_for_retry", previous_error=previous_error,
+            rows_kept=len(rows),
+        )
+    if reopened:
+        await session.commit()
+    return dates
 
 
 async def _simulate(
@@ -1033,6 +1126,7 @@ async def _simulate(
                 "to send on one",
                 task=SCENARIO_TASK,
             )
+        dates = await _reopen_dead_dates(session, analysis, dates)
 
         prompts: dict[uuid.UUID, str] = {}
         completed = incomplete = 0

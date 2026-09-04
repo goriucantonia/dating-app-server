@@ -13,19 +13,21 @@ to guess, and confirm/dispute are the only two things that change it by hand.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.ai.base import AIError, GenRequest, Message, RouteUnresolvedError
 from app.ai.structured import guarded_structured_call
 from app.errors import ApiError
-from app.extraction import extract_once, is_running
+from app.extraction import extract_once, is_running, queue_follow_up
 from app.logging_setup import log_event
-from app.models import Question, Trait, TraitEvent
+from app.models import Answer, Question, Trait, TraitEvent
 from app.routers.persona import start_compile
 from app.schemas.dispute_followup import DISPUTE_FOLLOWUP_V1
 from app.security import CurrentUser, DbSession
@@ -79,7 +81,7 @@ class TraitsOut(BaseModel):
 
 
 class ExtractOut(BaseModel):
-    status: str  # 'done' | 'queued'
+    status: str  # 'done' | 'queued' | 'started'
     kept: int = 0
     updated: int = 0
     retracted: int = 0
@@ -92,7 +94,7 @@ class DisputeIn(BaseModel):
     # Optional: the user may say what is actually true. It is not required —
     # demanding a correction to register a dispute would make disputing cost
     # more than living with a wrong trait.
-    correction: str | None = None
+    correction: str | None = Field(default=None, max_length=2000)
 
 
 class DisputeOut(BaseModel):
@@ -101,11 +103,91 @@ class DisputeOut(BaseModel):
     question_text: str
 
 
+# --- Start-then-poll extraction (audit 2026-09-02) --------------------------
+#
+# The synchronous form below is kept as-is: the probes read its counts. The
+# app asks for `?wait=false` and polls `/profile/extract/status`, because an
+# extraction is 22-127 s on the free tier and a request that long is a
+# client timeout waiting to happen (D-022). `_last` remembers each user's
+# most recent background outcome so the status endpoint can say how it went.
+_bg_running: set[uuid.UUID] = set()
+_bg_tasks: set = set()
+_last: dict[uuid.UUID, dict] = {}
+
+
+async def _run_extract_bg(app, user_id: uuid.UUID) -> None:
+    factory = async_sessionmaker(app.state.engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            outcome = await extract_once(session, app.state.ai_router, user_id)
+        if outcome is None:
+            _last[user_id] = {"status": "queued"}
+            return
+        if outcome.changed:
+            start_compile(app, user_id)
+        _last[user_id] = {
+            "status": "done", "changed": outcome.changed,
+            "kept": outcome.kept, "updated": outcome.updated,
+            "retracted": outcome.retracted, "added": outcome.added,
+        }
+    except RouteUnresolvedError:
+        _last[user_id] = {
+            "status": "failed", "code": "model_not_chosen",
+            "error": "The trait-reading model hasn't been chosen yet. Nothing is "
+                     "wrong with your answers — they're saved.",
+        }
+    except Exception as exc:  # noqa: BLE001 — a background task must report
+        log_event(
+            logger, "extract_failed", level=logging.ERROR,
+            user_id=str(user_id), error=f"{type(exc).__name__}: {exc}", background=True,
+        )
+        _last[user_id] = {
+            "status": "failed", "code": "extraction_failed",
+            "error": "We couldn't read your answers just now. They're saved — try "
+                     "again in a moment.",
+        }
+    finally:
+        _bg_running.discard(user_id)
+
+
 @router.post("/profile/extract", response_model=ExtractOut)
-async def extract(request: Request, user: CurrentUser, session: DbSession) -> ExtractOut:
+async def extract(
+    request: Request, user: CurrentUser, session: DbSession, wait: bool = True
+) -> ExtractOut:
     """S6-B1. Reads ALL answered questions and ALL existing trait rows, applies
     per-row verdicts. Two rapid requests produce one run and one queued
     follow-up — never two concurrent runs (S6-B5)."""
+    answered = (
+        await session.execute(
+            select(func.count()).select_from(Answer).where(Answer.user_id == user.id)
+        )
+    ).scalar_one()
+    if answered == 0:
+        # Used to reach the model layer, raise AIError, and come back as a
+        # 502 telling the person to "try again in a moment" — which did the
+        # same thing (audit 2026-09-02). Nothing is wrong; nothing was said.
+        raise ApiError(
+            409, "no_answers_yet",
+            "There's nothing to read yet — answer the questions first.",
+        )
+    if not wait:
+        if user.id in _bg_running or is_running(user.id):
+            # One run at a time. Queue the follow-up HERE: the lock inside
+            # extract_once, which does it for the synchronous form, is
+            # never reached on this branch (review 2026-09-03).
+            newly = queue_follow_up(user.id)
+            log_event(
+                logger, "extraction_queued", user_id=str(user.id),
+                newly_queued=newly, background=True,
+            )
+            return ExtractOut(status="queued")
+        _bg_running.add(user.id)
+        _last.pop(user.id, None)
+        task = asyncio.create_task(_run_extract_bg(request.app, user.id))
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
+        log_event(logger, "extraction_started_background", user_id=str(user.id))
+        return ExtractOut(status="started")
     try:
         outcome = await extract_once(session, request.app.state.ai_router, user.id)
     except RouteUnresolvedError as exc:
@@ -198,6 +280,26 @@ async def confirm_trait(
             "That one was already removed from your profile, so there's "
             "nothing to confirm.",
         )
+    if trait.status == "confirmed":
+        # Idempotent: a second tap used to append a second event every time,
+        # inflating the drift alarm with confirmations that already were.
+        return TraitOut.build(trait)
+    if trait.status == "disputed":
+        # Confirming closes the dispute: its unanswered follow-up question
+        # would otherwise sit in "corrections waiting" for a trait the
+        # person has since said is right (audit 2026-09-02).
+        open_questions = (
+            await session.execute(
+                select(Question)
+                .outerjoin(Answer, Answer.question_id == Question.id)
+                .where(
+                    Question.origin == "dispute", Question.trait_id == trait.id,
+                    Answer.id.is_(None),
+                )
+            )
+        ).scalars().all()
+        for q in open_questions:
+            await session.delete(q)
     trait.status = "confirmed"
     session.add(TraitEvent(trait_id=trait.id, event="confirmed", detail="user confirmed"))
     await session.commit()
@@ -237,8 +339,16 @@ async def dispute_trait(
     ).scalar_one_or_none()
     if existing is not None:
         # Exactly one, per AC4. Disputing twice reuses the open question rather
-        # than stacking a second one on the same trait.
+        # than stacking a second one on the same trait. Still an event: this
+        # path used to write none, so a confirmed → disputed transition was
+        # invisible in `trait_events` (audit 2026-09-02).
+        reuse_correction = (body.correction or "").strip()
         trait.status = "disputed"
+        session.add(TraitEvent(
+            trait_id=trait.id, event="disputed",
+            detail=(f"user disputed again; correction: {reuse_correction}"
+                    if reuse_correction else "user disputed again")[:2000],
+        ))
         await session.commit()
         return DisputeOut(
             trait=TraitOut.build(trait),
@@ -337,4 +447,10 @@ async def dispute_trait(
 async def extract_status(user: CurrentUser) -> dict:
     """Small, but it is what lets the UI say "still reading your answers"
     instead of showing a fake timer (§7 of new_user_creation.md, Step 7)."""
-    return {"running": is_running(user.id)}
+    return {
+        "running": is_running(user.id) or user.id in _bg_running,
+        # The most recent BACKGROUND outcome, or null. Cleared when a new
+        # background run starts, so a stale "done" cannot be mistaken for
+        # this run's.
+        "last": _last.get(user.id),
+    }

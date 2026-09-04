@@ -67,6 +67,9 @@ async def get_current_user(
             credentials.credentials,
             request.app.state.settings.jwt_secret,
             algorithms=[_ALGORITHM],
+            # A token minted elsewhere with the same secret but no `exp`
+            # would never expire; require the claims this server writes.
+            options={"require": ["exp", "sub"]},
         )
         user_id = uuid.UUID(payload["sub"])
     except (jwt.InvalidTokenError, KeyError, ValueError):

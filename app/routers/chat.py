@@ -23,8 +23,9 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.ai.base import RouteUnresolvedError
 from app.chat import (
@@ -92,6 +93,18 @@ class ReplyOut(BaseModel):
 
 class MessageIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
+    # Optional, client-generated, reused on a retry of the SAME send. See
+    # `chat_messages.client_message_id` (audit 2026-09-02).
+    client_message_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("text")
+    @classmethod
+    def _something_was_said(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("that message contains a character we can't store")
+        if not v.strip():
+            raise ValueError("write something first")
+        return v
 
 
 def _msg_out(m: ChatMessage) -> ChatMessageOut:
@@ -160,6 +173,10 @@ async def select_endpoint(
             select(AnalysisCandidate).where(
                 AnalysisCandidate.analysis_id == analysis.id,
                 AnalysisCandidate.candidate_user_id == candidate_id,
+                # A rejected person is `not_a_candidate` here: the row is
+                # kept (S17) but nobody should be able to open a chat with
+                # someone they turned down.
+                AnalysisCandidate.status == "active",
             )
         )
     ).scalar_one_or_none()
@@ -263,13 +280,47 @@ async def send_message(
 ) -> ReplyOut:
     """S14-B4. Send + receive, one AI call, nothing in the background."""
     convo, _ = await _owned_session(session, user.id, session_id)
+    convo_id = convo.id  # captured: the collision handler rolls back
     if convo.status == "ended":
         raise ApiError(
             409, "chat_ended",
             "This chat has ended. You can still read it, but not add to it.",
         )
+    if body.client_message_id:
+        # A resend of a send that already landed (the client timed out while
+        # the server carried on): answer with what was stored, no model call.
+        stored = (
+            await session.execute(
+                select(ChatMessage).where(
+                    ChatMessage.session_id == convo.id,
+                    ChatMessage.client_message_id == body.client_message_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if stored is not None:
+            persona_row = (
+                await session.execute(
+                    select(ChatMessage).where(
+                        ChatMessage.session_id == convo.id,
+                        ChatMessage.seq == stored.seq + 1,
+                    )
+                )
+            ).scalar_one_or_none()
+            if persona_row is not None:
+                log_event(
+                    logger, "chat_reply_replayed", session_id=str(convo.id),
+                    client_message_id=body.client_message_id, seq=stored.seq,
+                )
+                return ReplyOut(
+                    user_message=_msg_out(stored),
+                    persona_message=_msg_out(persona_row),
+                    compacted=False,
+                )
     try:
-        result = await reply(session, request.app.state.ai_router, convo, body.text)
+        result = await reply(
+            session, request.app.state.ai_router, convo, body.text,
+            client_message_id=body.client_message_id,
+        )
     except RouteUnresolvedError as exc:
         raise ApiError(
             503, "model_not_chosen",
@@ -281,6 +332,39 @@ async def send_message(
             502, "reply_failed",
             "They couldn't reply just now. Your message is still in the box — "
             "try sending it again.",
+        ) from exc
+    except IntegrityError as exc:
+        # Belt and braces under the row lock: a seq collision means another
+        # send on this session landed first. If it was THIS send (a resend
+        # that overtook its original), answer with the stored pair; else
+        # state, not a crash.
+        await session.rollback()
+        if body.client_message_id:
+            stored = (
+                await session.execute(
+                    select(ChatMessage).where(
+                        ChatMessage.session_id == convo_id,
+                        ChatMessage.client_message_id == body.client_message_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            persona_row = None if stored is None else (
+                await session.execute(
+                    select(ChatMessage).where(
+                        ChatMessage.session_id == convo_id,
+                        ChatMessage.seq == stored.seq + 1,
+                    )
+                )
+            ).scalar_one_or_none()
+            if stored is not None and persona_row is not None:
+                return ReplyOut(
+                    user_message=_msg_out(stored),
+                    persona_message=_msg_out(persona_row),
+                    compacted=False,
+                )
+        raise ApiError(
+            409, "chat_busy",
+            "A reply is still on its way — wait for it, then send again.",
         ) from exc
 
     user_row = (

@@ -15,7 +15,8 @@ import logging
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.exc import IntegrityError
 
 from app.deletion import delete_account
 from app.errors import ApiError
@@ -46,11 +47,23 @@ class MePatch(BaseModel):
     birth_date: date | None = None
     gender: str | None = None
     interested_in: list[str] | None = Field(default=None, min_length=1)
-    age_pref_min: int | None = Field(default=None, ge=18)
-    age_pref_max: int | None = None
-    city: str | None = None
-    country: str | None = None
+    age_pref_min: int | None = Field(default=None, ge=18, le=120)
+    age_pref_max: int | None = Field(default=None, le=120)
+    city: str | None = Field(default=None, max_length=100)
+    country: str | None = Field(default=None, max_length=100)
     opt_in: bool | None = None
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    @field_validator("display_name")
+    @classmethod
+    def name_is_required(cls, v: str | None) -> str | None:
+        # An explicit null validated (min_length ignores None) and then hit
+        # the NOT NULL column as a 500 (audit 2026-09-02). Absent is fine —
+        # defaults are not validated — null and blank are not.
+        if v is None or not v.strip():
+            raise ValueError("a name is required")
+        return v.strip()
 
     @field_validator("birth_date")
     @classmethod
@@ -92,8 +105,20 @@ async def get_me(user: CurrentUser) -> UserOut:
     return UserOut.from_user(user)
 
 
+def _refuse_demo(user) -> None:
+    """A demo account is a shared fixture with a public password. Letting it
+    be edited reshaped everyone's pool; letting it be deleted cascaded every
+    real user's dates and chats with that person (audit 2026-09-02)."""
+    if user.is_demo:
+        raise ApiError(
+            403, "demo_account",
+            "This is a shared demo account — it can't be changed or deleted.",
+        )
+
+
 @router.patch("/me")
 async def patch_me(payload: MePatch, user: CurrentUser, session: DbSession) -> UserOut:
+    _refuse_demo(user)
     changes = payload.model_dump(exclude_unset=True)
     # The age-range CHECK spans two fields; when only one arrives, validate it
     # against the stored other half before the database has to reject it.
@@ -123,7 +148,20 @@ async def patch_me(payload: MePatch, user: CurrentUser, session: DbSession) -> U
     # Free (no model call) and inline, because a rename that takes effect
     # "eventually" is the defect this closes.
     if changes.keys() & IDENTITY_FIELDS:
-        await refresh_identity(session, user)
+        try:
+            await refresh_identity(session, user)
+        except IntegrityError as exc:
+            # A background compile allocated the same version number in the
+            # same instant. The profile change is already committed; the
+            # boot sweep (D-017) repairs the prompt, so say so and carry on.
+            await session.rollback()
+            # The rollback expired `user`; reload it before anything (the
+            # log line, the response) reads an attribute (D-014).
+            await session.refresh(user)
+            log_event(
+                logger, "identity_refresh_deferred", level=logging.WARNING,
+                user_id=str(user.id), error=str(exc)[:200],
+            )
     return UserOut.from_user(user)
 
 
@@ -143,5 +181,6 @@ async def delete_me(user: CurrentUser, session: DbSession) -> DeletionReceipt:
     `…_as_candidate` and `…_as_match`: dates and chats where this person was
     the OTHER party disappear from someone else's history. Named trade —
     privacy beats history."""
+    _refuse_demo(user)
     counts = await delete_account(session, user)
     return DeletionReceipt(deleted=counts, rows_removed=sum(counts.values()))

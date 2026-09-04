@@ -18,9 +18,10 @@ import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.errors import ApiError
@@ -166,18 +167,34 @@ async def _build(session, analysis: Analysis) -> AnalysisOut:
             )
             for c, u in rows
         ],
-        message=(
-            "There is no one to match you with yet."
-            if analysis.status == "no_candidates"
-            else None
-        ),
+        message=_no_candidates_message(analysis),
     )
 
 
 async def _run(app, analysis_id: uuid.UUID) -> None:
     factory = async_sessionmaker(app.state.engine, expire_on_commit=False)
-    async with factory() as session:
-        await start_and_run(session, app.state.ai_router, analysis_id)
+    try:
+        async with factory() as session:
+            await start_and_run(session, app.state.ai_router, analysis_id)
+    except Exception as exc:  # noqa: BLE001
+        # A background task that raises has nowhere to report; without this
+        # the only trace was asyncio's "Task exception was never retrieved"
+        # at garbage-collection time, and the row stayed `matching`.
+        log_event(
+            logger, "matching_crashed", level=logging.ERROR,
+            analysis_id=str(analysis_id), error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _no_candidates_message(analysis: Analysis) -> str | None:
+    if analysis.status != "no_candidates":
+        return None
+    if (analysis.progress or {}).get("reason") == "requester_not_embeddable":
+        return (
+            "Your answers haven't been read into traits yet, so there is nothing "
+            "to match you on. Build your profile first, then try again."
+        )
+    return "There is no one to match you with yet."
 
 
 @router.post("/analyses", response_model=AnalysisOut, status_code=202)
@@ -201,9 +218,28 @@ async def create_analysis(
             fields=[{"field": "analysis_id", "message": str(active.id)}],
         )
 
-    analysis = Analysis(user_id=user.id, status="matching")
+    uid = user.id  # captured: a rollback below would expire `user`
+    analysis = Analysis(user_id=uid, status="matching")
     session.add(analysis)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # Two taps raced past the SELECT above; `ux_analyses_one_active`
+        # (migration 0013) held. Answer as the SELECT would have.
+        await session.rollback()
+        active = (
+            await session.execute(
+                select(Analysis)
+                .where(Analysis.user_id == uid, Analysis.status.in_(ACTIVE_STATES))
+                .order_by(Analysis.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        raise ApiError(
+            409, "analysis_in_progress",
+            "You've already got one running — hang on for that one to finish.",
+            fields=[{"field": "analysis_id", "message": str(active.id) if active else ""}],
+        ) from exc
 
     log_event(
         logger, "analysis_started",
@@ -287,13 +323,18 @@ async def reject_candidate(
 
 
 @router.get("/analyses")
-async def list_analyses(user: CurrentUser, session: DbSession) -> dict:
-    """History, newest first — the revisitable-results decision."""
+async def list_analyses(
+    user: CurrentUser, session: DbSession, limit: int = Query(50, ge=1, le=200)
+) -> dict:
+    """History, newest first — the revisitable-results decision. Bounded:
+    three queries per row, and nothing on the screen reads past the first
+    page of a history anyway."""
     rows = (
         await session.execute(
             select(Analysis)
             .where(Analysis.user_id == user.id)
             .order_by(Analysis.created_at.desc())
+            .limit(limit)
         )
     ).scalars()
     return {"analyses": [(await _build(session, a)).model_dump() for a in rows]}

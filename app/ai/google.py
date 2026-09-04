@@ -64,7 +64,14 @@ class GoogleProvider:
                 task=task, provider=self.name, model=model,
             )
         if self._client is None:
-            self._client = genai.Client(api_key=self._api_key)
+            # The SDK default is NO timeout (httpx `timeout=None` disables
+            # it), so a stalled embedding call held matching in an active
+            # state indefinitely (audit 2026-09-02). Same budget as the
+            # OpenRouter read timeout; the value is milliseconds.
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=genai_types.HttpOptions(timeout=120_000),
+            )
         return self._client
 
     @staticmethod

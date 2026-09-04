@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -29,7 +29,7 @@ from app.ai.base import AIError, GenRequest, Message, RouteUnresolvedError
 from app.ai.structured import guarded_structured_call
 from app.errors import ApiError
 from app.logging_setup import log_event
-from app.models import CalibrationMessage, CalibrationSession, PersonaSnapshot
+from app.models import CalibrationMessage, CalibrationSession, PersonaSnapshot, Trait
 from app.persona import compile_persona, get_current_snapshot, is_stale, latest_snapshot
 from app.schemas.agent_response import AGENT_RESPONSE_V1
 from app.security import CurrentUser, DbSession
@@ -45,6 +45,9 @@ CHAT_MAX_TOKENS = 2048
 # would race to claim the same version number and one would lose on the
 # UNIQUE (user_id, version) constraint.
 _compiling: set[uuid.UUID] = set()
+# Users whose compile was requested WHILE one was in flight: run once more
+# when it finishes (the extraction lock has the same follow-up rule).
+_compile_queued: set[uuid.UUID] = set()
 
 # asyncio only holds a WEAK reference to a running task. A bare
 # `create_task(...)` whose result nobody keeps can be garbage-collected
@@ -109,6 +112,10 @@ async def _run_compile(app, user_id: uuid.UUID) -> None:
         )
     finally:
         _compiling.discard(user_id)
+        if user_id in _compile_queued:
+            _compile_queued.discard(user_id)
+            log_event(logger, "persona_compile_follow_up", user_id=str(user_id))
+            start_compile(app, user_id)
 
 
 def start_compile(app, user_id: uuid.UUID) -> bool:
@@ -120,6 +127,9 @@ def start_compile(app, user_id: uuid.UUID) -> bool:
     ideas of what "already compiling" means (§16).
     """
     if user_id in _compiling:
+        # Not dropped: traits changed during a compile used to leave the
+        # finished snapshot stale with nothing rebuilding it (audit).
+        _compile_queued.add(user_id)
         return False
     _compiling.add(user_id)
     task = asyncio.create_task(_run_compile(app, user_id))
@@ -129,10 +139,30 @@ def start_compile(app, user_id: uuid.UUID) -> bool:
 
 
 @router.post("/persona/compile", response_model=CompileOut)
-async def compile_endpoint(request: Request, user: CurrentUser) -> CompileOut:
+async def compile_endpoint(
+    request: Request, user: CurrentUser, session: DbSession
+) -> CompileOut:
     """S7-B7. Returns immediately — compilation takes tens of seconds and a
     request that blocks on it would be a timeout waiting to happen. The client
-    polls GET /persona/current."""
+    polls GET /persona/current.
+
+    Refuses synchronously when there is nothing to compile (audit
+    2026-09-02): the background job would only write a `failed` row, and a
+    409 now beats a poll that ends in one later.
+    """
+    live_traits = (
+        await session.execute(
+            select(func.count()).select_from(Trait).where(
+                Trait.user_id == user.id, Trait.status != "retracted"
+            )
+        )
+    ).scalar_one()
+    if live_traits == 0:
+        raise ApiError(
+            409, "nothing_to_compile",
+            "There are no traits to build from yet — your answers need to be "
+            "read into traits first.",
+        )
     started = start_compile(request.app, user.id)
     return CompileOut(
         snapshot_id=None, status="compiling" if started else "already_compiling"
@@ -162,6 +192,15 @@ class SessionOut(BaseModel):
 
 class MessageIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("text")
+    @classmethod
+    def _something_was_said(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("that message contains a character we can't store")
+        if not v.strip():
+            raise ValueError("write something first")
+        return v
 
 
 class MessageOut(BaseModel):

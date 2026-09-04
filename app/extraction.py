@@ -27,6 +27,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -209,16 +210,75 @@ def _build_handles(traits: list[Trait]) -> tuple[dict[str, Trait], str]:
 
 def _build_answer_block(
     rows: list[tuple[Question, Answer]],
+    handle_of: dict[uuid.UUID, str] | None = None,
 ) -> tuple[dict[str, uuid.UUID], str]:
     """Every answer needs a stable short name for provenance. Baseline and pool
-    questions have codes already; dispute questions do not, so they get one."""
+    questions have codes already; dispute questions do not, so they get one.
+
+    A dispute answer is also TOLD which trait it is about (audit 2026-09-02):
+    the spec says the next extraction "corrects rather than re-infers", and
+    that only happens if the model can connect the answer to the handle.
+    """
     by_code: dict[str, uuid.UUID] = {}
     blocks: list[str] = []
     for i, (q, a) in enumerate(rows, start=1):
         code = q.code or f"D{i}"
         by_code[code] = a.id
-        blocks.append(f"--- {code} ({q.probe_area})\nQ: {q.text}\nA: {a.answer_text}")
+        note = ""
+        handle = (handle_of or {}).get(q.trait_id) if q.origin == "dispute" else None
+        if handle:
+            note = (
+                f"\n(The person DISPUTED {handle} and this is their answer about "
+                f"it. Treat it as the correction: `update` {handle} to what they "
+                f"say, or `retract` it if they say it is simply not true.)"
+            )
+        blocks.append(f"--- {code} ({q.probe_area}){note}\nQ: {q.text}\nA: {a.answer_text}")
     return by_code, "\n\n".join(blocks)
+
+
+async def _confirmed_and_unchanged(
+    session: AsyncSession, traits: list[Trait], rows: list[tuple[Question, Answer]]
+) -> frozenset[uuid.UUID]:
+    """Traits the person confirmed and has said nothing new about since.
+
+    "Confirmations never evaporate" (decision log #10) was enforced for
+    `update` verdicts and NOT for `retract`, so a bad day at the model could
+    strike a confirmed trait, hide it from every later run, and re-add it as
+    a fresh guess with a new id (audit 2026-09-02). A retraction is honoured
+    only when a source answer was edited AFTER the confirmation — the one
+    case where the ground under the confirmation genuinely moved.
+    """
+    confirmed = [t for t in traits if t.status == "confirmed"]
+    if not confirmed:
+        return frozenset()
+    latest_confirm: dict[uuid.UUID, datetime] = {}
+    events = (
+        await session.execute(
+            select(TraitEvent.trait_id, TraitEvent.created_at).where(
+                TraitEvent.trait_id.in_([t.id for t in confirmed]),
+                TraitEvent.event == "confirmed",
+            )
+        )
+    ).all()
+    for trait_id, at in events:
+        if trait_id not in latest_confirm or at > latest_confirm[trait_id]:
+            latest_confirm[trait_id] = at
+    answer_updated = {a.id: a.updated_at for _, a in rows}
+    out: set[uuid.UUID] = set()
+    for t in confirmed:
+        confirmed_at = latest_confirm.get(t.id)
+        if confirmed_at is None:
+            # Confirmed with no event on record: nothing to compare against,
+            # and the safe reading of a confirmation is to keep it.
+            out.add(t.id)
+            continue
+        edited_since = any(
+            (answer_updated.get(aid) or confirmed_at) > confirmed_at
+            for aid in (t.source_answer_ids or [])
+        )
+        if not edited_since:
+            out.add(t.id)
+    return frozenset(out)
 
 
 def _resolve_sources(
@@ -269,7 +329,14 @@ async def run_extraction(
         raise AIError("this person has not answered anything yet", task=TASK)
 
     by_handle, trait_block = _build_handles(existing)
-    by_code, answer_block = _build_answer_block(rows)
+    handle_of = {t.id: h for h, t in by_handle.items()}
+    by_code, answer_block = _build_answer_block(rows, handle_of)
+    protected = await _confirmed_and_unchanged(session, existing, rows)
+    # A dispute question that has been ANSWERED is a correction waiting to be
+    # applied: an `update` verdict on that trait closes the dispute.
+    answered_disputes = {
+        q.trait_id for q, _ in rows if q.origin == "dispute" and q.trait_id is not None
+    }
 
     provider, model = router.resolve(TASK)
     outcome = ExtractionOutcome(model=f"{provider.name}/{model}", answers_seen=len(rows))
@@ -320,7 +387,10 @@ async def run_extraction(
         TRAIT_EXTRACTION_V1,
     )
 
-    await _apply(session, result, outcome, by_handle, by_code, user_id)
+    await _apply(
+        session, result, outcome, by_handle, by_code, user_id,
+        protected=protected, answered_disputes=answered_disputes,
+    )
 
     # §19, and the reason this is not split into two functions: the trait write
     # COMMITS here, and only the lines below it recompute the hash. Recomputing
@@ -360,6 +430,9 @@ async def _apply(
     by_handle: dict[str, Trait],
     by_code: dict[str, uuid.UUID],
     user_id: uuid.UUID,
+    *,
+    protected: frozenset[uuid.UUID] = frozenset(),
+    answered_disputes: set[uuid.UUID] | None = None,
 ) -> None:
     """S6-B3. Verdicts become row changes and `trait_events`. Bookkeeping only
     — the commit belongs to the caller, so the §19 ordering stays visible in
@@ -383,6 +456,17 @@ async def _apply(
         reason = (v.get("reason") or "").strip()
 
         if verdict == "retract":
+            if trait.id in protected:
+                # The person said "yes, that's me" and nothing they wrote has
+                # changed since. The model does not get to overrule that.
+                log_event(
+                    logger, "retract_declined_confirmed", level=logging.WARNING,
+                    user_id=str(user_id), trait_id=str(trait.id), handle=handle,
+                    model=outcome.model, reason=reason[:300],
+                )
+                outcome.ignored.append(f"{handle}: retract declined — confirmed by the person")
+                outcome.kept += 1
+                continue
             trait.status = "retracted"
             session.add(TraitEvent(
                 trait_id=trait.id, event="retracted",
@@ -418,12 +502,23 @@ async def _apply(
                 outcome.kept += 1
                 continue
 
-            # A `confirmed` or `disputed` row keeps its status through an
-            # update — that IS decision log #10. Only the content moves.
+            # A `confirmed` row keeps its status through an update — that IS
+            # decision log #10. Only the content moves.
             session.add(TraitEvent(
                 trait_id=trait.id, event="updated",
                 detail=f"extraction ({outcome.model}): {reason}"[:2000],
             ))
+            if trait.status == "disputed" and trait.id in (answered_disputes or set()):
+                # The person disputed it, answered the follow-up, and the
+                # model rewrote the trait from that answer: the dispute is
+                # closed. `corrected` existed in both CHECK constraints and
+                # nothing ever wrote it (audit 2026-09-02) — "Being
+                # corrected" was forever.
+                trait.status = "corrected"
+                session.add(TraitEvent(
+                    trait_id=trait.id, event="corrected",
+                    detail=f"extraction ({outcome.model}) applied the person's answer"[:2000],
+                ))
             outcome.updated += 1
             continue
 
@@ -437,6 +532,10 @@ async def _apply(
             outcome.kept += 1
             outcome.ignored.append(f"{handle}: no verdict returned, row kept")
 
+    taken_labels = {
+        (t.category, " ".join(t.label.casefold().split()))
+        for t in by_handle.values() if t.status != "retracted"
+    }
     for add in result.get("additions") or []:
         category = add.get("category")
         label = (add.get("label") or "").strip()
@@ -450,6 +549,14 @@ async def _apply(
             # matching silently impossible. Loud beats quietly wrong.
             outcome.ignored.append(f"add '{label}': label is an identifier, not a label")
             continue
+        key = (category, " ".join(label.casefold().split()))
+        if key in taken_labels:
+            # Same label (case- and space-insensitively) as a live row or an
+            # addition earlier in this response: D-007 closed the compounding
+            # variant by prompt alone; this is the guard in code.
+            outcome.ignored.append(f"add '{label}': duplicates an existing trait")
+            continue
+        taken_labels.add(key)
         sources = _resolve_sources(add.get("source_question_codes"), by_code)
         if not sources:
             # §9: a trait with no provenance is an invention, and we do not
@@ -501,7 +608,18 @@ async def extract_once(
         return None
 
     async with lock:
-        outcome = await run_extraction(session, router, user_id)
+        try:
+            outcome = await run_extraction(session, router, user_id)
+        except BaseException:
+            # The run died; the follow-up it owed dies with it, LOUDLY,
+            # rather than leaking into the next run as an unrequested
+            # second model call (audit 2026-09-02).
+            if take_queued(user_id):
+                log_event(
+                    logger, "extraction_follow_up_dropped", level=logging.WARNING,
+                    user_id=str(user_id), reason="the run it was queued behind failed",
+                )
+            raise
         if take_queued(user_id):
             log_event(logger, "extraction_follow_up_start", user_id=str(user_id))
             outcome = await run_extraction(session, router, user_id)

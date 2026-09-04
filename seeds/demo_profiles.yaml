@@ -14,6 +14,17 @@
 #
 # Every answer is at least 50 characters (the floor, §18) and written in a
 # voice, because the persona learns the voice from the words (trade #1).
+#
+# WRITE THEM WITH SOME BODY, ~300+ characters (observed 2026-09-03). Three of
+# the forty profiles added that day were written terse (~200 chars per answer)
+# and their prompts reliably 400'd at the openrouter upstream — vlad at
+# `trait_extraction`, mihnea and gheorghe at `persona_digest`, every attempt,
+# nine in a row for vlad. Proven by capturing the production request and
+# replaying it: the SAME bytes returned `400 bad request` on one attempt and
+# `content_filter` on the next, so it is not the meaning of the words. The
+# same prompt shape with longer answers passed immediately. Nothing in the
+# app is wrong here and there is no code fix — it is a provider quirk. If a
+# new profile will not extract, lengthen its answers before anything else.
 password: demo-password
 
 profiles:
@@ -482,3 +493,1585 @@ profiles:
         changed at the door. People get wrong that I am cold. I am formal with
         strangers and extremely silly with about four people, and the gap between
         those is the whole personality.
+
+  - email: larisa.demo@dating-demo.dev
+    display_name: Larisa
+    birth_date: "1998-03-11"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 23
+    age_pref_max: 34
+    city: Sibiu
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Dogs. I am a vet tech so it is also my job, which people warn me about,
+        but I foster on top of it. Currently a three-legged shepherd who is
+        scared of doorways. I learn by doing and by asking the vets things until
+        they get annoyed with me.
+      BQ2: >-
+        Calm. Not boring, calm. Someone who does not need me to be entertaining
+        after a twelve hour shift. Nice-to-have: likes animals, or at least does
+        not mind hair on everything he owns. Dealbreaker is anyone who has ever
+        described a dog as an it.
+      BQ3: >-
+        A client screamed at me because we could not save her cat, and I stood
+        there and took it and then cried in the supply room. I would not change
+        the taking it. I would change the not telling anyone after, because I
+        went home and was horrible to my sister for no reason.
+      BQ4: >-
+        Badly. I go blunt and a bit rude when I like someone, which I am told is
+        confusing. Good first date is a walk with a dog, any dog, borrowed if
+        necessary. I shut down if someone talks over me twice.
+      BQ5: >-
+        Stubborn, practical, bad at small talk. My best friend says I am the
+        person you call at 3am and also the person who will tell you your
+        haircut is wrong. People think I am cold because I do not smile at
+        strangers.
+
+  - email: cosmin.demo@dating-demo.dev
+    display_name: Cosmin
+    birth_date: "1983-01-27"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 28
+    age_pref_max: 45
+    city: Constanta
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I am a second engineer on cargo ships, so six months on and two off. On
+        board I read, a lot, mostly history, because there is nothing else and
+        the internet is a rumour. On land I cook enormous meals for people and
+        fix things in my mother's flat. I learn machines by taking them apart,
+        and people much slower than that.
+      BQ2: >-
+        Someone with a full life of her own, because half the year I am not here
+        and I will not pretend otherwise. Independence is not a nice-to-have for
+        me, it is the requirement. The dealbreaker is jealousy by text; I have
+        watched that end two marriages on my ship.
+      BQ3: >-
+        My chief and I disagreed about a repair and I went over his head to the
+        captain because I thought it was unsafe. I was right and it cost me the
+        rest of the contract in silence. The feeling was mostly fear. I would do
+        it again, but I would tell him first, to his face, instead of after.
+      BQ4: >-
+        I feed people. That is my whole method, it is not sophisticated. I talk
+        about the sea more than anyone wants. A good first date is late, after
+        eight, somewhere with real food. I open up when someone asks a follow-up
+        about the work instead of just saying that must be lonely.
+      BQ5: >-
+        Steady, old-fashioned, and away too much. My friends would say I am
+        generous with money to the point of stupidity, and that I go silent for
+        weeks and then reappear like nothing happened. People assume the sea
+        thing is romantic. It is mostly noise and diesel.
+
+  - email: nadia.demo@dating-demo.dev
+    display_name: Nadia
+    birth_date: "1976-10-05"
+    gender: woman
+    interested_in: [man, woman]
+    age_pref_min: 38
+    age_pref_max: 58
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        A garden on a fourth floor balcony that has got completely out of hand.
+        Tomatoes, four kinds of mint, a fig tree that will die and I refuse to
+        accept it. I research obsessively in winter and then ignore all of it in
+        spring and do what feels right. Two teenagers in the house, so the
+        balcony is also where I hide.
+      BQ2: >-
+        A grown-up. I mean someone who has been through something and did the
+        work afterwards, not someone who is still explaining why every ex was
+        insane. Kindness towards my kids matters, though I will not introduce
+        anyone for a long time. Dealbreaker: needing to be the centre of
+        everything.
+      BQ3: >-
+        My daughter said I love her brother more, in front of him, at dinner. I
+        said something defensive and clever instead of just sitting with it. Two
+        hours later I went to her room and said she was allowed to feel that and
+        I was sorry it looked that way. The second conversation is the only part
+        I would keep.
+      BQ4: >-
+        I flirt by teasing, which at forty-nine is either charming or terrible.
+        First date should be short and in daylight. I open up over cooking. I
+        shut down if someone is dismissive about the divorce, as if it were a
+        failure of character rather than a Tuesday.
+      BQ5: >-
+        Warm, sharp-tongued, tired. My oldest friend says I take on other
+        people's problems as a way of avoiding my own, which is annoying and
+        correct. People get wrong that I am looking to be rescued. I run a
+        household and a small business. I am looking for company.
+
+  - email: vlad.demo@dating-demo.dev
+    display_name: Vlad
+    birth_date: "2004-05-19"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 18
+    age_pref_max: 24
+    city: Iasi
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Mostly games and building dumb little programs nobody asked for. Last
+        month I made a bot that texts me when the cafeteria has soup, which works
+        maybe half the time and has told me about soup that did not exist twice. I
+        am doing computer science and the coursework is the least interesting part
+        of it. I learn by breaking things and reading the error until it makes
+        sense, never by watching a tutorial all the way through.
+      BQ2: >-
+        Funny. Genuinely funny, not just sends memes at two in the morning.
+        Someone who has a thing she is weirdly serious about, and it honestly does
+        not matter what the thing is, I just want to watch somebody care about
+        something in front of me. Nice-to-have is patience with the fact that I am
+        broke until I graduate. Dealbreaker is people who are mean to their
+        friends and call it a bit.
+      BQ3: >-
+        My roommate kept using my stuff without asking and instead of saying
+        anything I started hiding it, which is a pathetic way to run a friendship.
+        Then I snapped at him over a phone charger, of all things, and it came out
+        far bigger than a charger. I was embarrassed more than angry. We are fine
+        now, we split a shelf and it is stupid how well that worked. I should have
+        just said it in week one like an adult.
+      BQ4: >-
+        I get loud and I overshare and I make jokes at a rate that is probably a
+        symptom of something. On a good first date I would rather be doing
+        something than sitting across a table, an arcade or a long walk, because I
+        cannot sit still in restaurants and I start fidgeting with the menu. I
+        open up when the other person admits something embarrassing first. I shut
+        down completely if I feel like I am being graded.
+      BQ5: >-
+        Chaotic but reliable about the things that actually matter, I think. My
+        friends would say I am always late and always there, which I am choosing
+        to take as a compliment. People think I am not serious about anything
+        because I joke constantly. I am very serious about a couple of things, I
+        am just twenty-two and bad at showing which ones.
+
+  - email: ioana.demo@dating-demo.dev
+    display_name: Ioana
+    birth_date: "1994-08-08"
+    gender: woman
+    interested_in: [woman]
+    age_pref_min: 26
+    age_pref_max: 38
+    city: Cluj-Napoca
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I am an ICU nurse on nights, so my hobby is being awake at the wrong
+        time. What I actually love is swimming, very early, in the outdoor pool
+        even in October when it is stupid. It is the only hour nobody needs
+        anything from me. I do not track it or try to improve at it, I just go.
+      BQ2: >-
+        Someone who can be around difficulty without flinching and without
+        fixing. Nurses date nurses for a reason and I am trying not to.
+        Nice-to-have is normal working hours and no resentment about mine. The
+        dealbreaker is squeamishness about the body, because I will talk about
+        my day.
+      BQ3: >-
+        I told a junior colleague off in front of a family because she had made
+        a drug error and I was terrified. The correction was right, the audience
+        was not. I found her at the end of the shift and said exactly that. She
+        still does not trust me and I have to live with it.
+      BQ4: >-
+        Quiet, and I stare, apparently. I show interest by rearranging my roster
+        for someone, which is a bigger gesture than it sounds. Good first date
+        is breakfast, because for me that is the evening. I open up around
+        people who are physically calm. I shut down around people who need
+        constant reassurance.
+      BQ5: >-
+        Competent and a bit closed. My closest friend says I am the safest
+        person she knows and the hardest to actually reach. People get wrong
+        that I am unshockable and therefore fine. I am unshockable and often not
+        fine, and I would like someone to notice the difference.
+
+  - email: emil.demo@dating-demo.dev
+    display_name: Emil
+    birth_date: "1990-12-14"
+    gender: man
+    interested_in: [man]
+    age_pref_min: 27
+    age_pref_max: 40
+    city: Timisoara
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Drawing buildings that will never be built. I am an architect and the
+        paid work is mostly car parks, so on Sundays I draw houses for imaginary
+        clients on imaginary hills. Also chess, badly, in the park against men
+        thirty years older who beat me and enjoy it. I learn by copying the
+        masters until my hand understands.
+      BQ2: >-
+        Someone who is not embarrassed to be earnest. Irony is the water I swim
+        in and I would like to get out. Nice-to-have: an eye for things, though
+        not necessarily the same things. Dealbreaker is a man who is closeted in
+        a way that would make me smaller in public; I did that for years and I
+        am not going back.
+      BQ3: >-
+        A colleague took credit for my facade in a client meeting and I said
+        nothing, then wrote an extremely polite email that was actually a knife.
+        He answered it kindly, which was worse. I would rather have said it out
+        loud in the room, badly, than been surgical afterwards.
+      BQ4: >-
+        I ask a lot of questions and give very little, which is a defence
+        dressed up as interest. A good first date is a long walk through a part
+        of the city one of us does not know. I open up when someone touches my
+        arm while making a point. I shut down when I am being performed at.
+      BQ5: >-
+        Precise, private, warmer than I look. My friend of twenty years says I
+        arrange my life so that nobody can disappoint me, which is a hell of a
+        thing to hear over beers. People get wrong that I am judging them. I am
+        usually just thinking about a roofline.
+
+  - email: ruxandra.demo@dating-demo.dev
+    display_name: Rux
+    birth_date: "1996-02-29"
+    gender: woman
+    interested_in: [man, nonbinary]
+    age_pref_min: 24
+    age_pref_max: 36
+    city: Brasov
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Climbing, ceramics, and about nine abandoned projects. I get completely
+        obsessed for four months and then drop it, which I stopped apologising
+        for after the ADHD diagnosis. Right now it is bouldering four evenings a
+        week and my hands are wrecked. I learn by doing it too much,
+        immediately, badly.
+      BQ2: >-
+        Someone with a steadier baseline than mine who does not treat that as a
+        moral achievement. I need patience, not management. Nice-to-have is
+        physical, someone who moves. Dealbreaker is being called dramatic, or
+        any version of calm down.
+      BQ3: >-
+        I forgot my friend's birthday dinner. Actually forgot, it was in no
+        calendar. She said this is a pattern and I got very defensive and listed
+        my reasons for about ten minutes. Then I went home and put every
+        birthday I care about in my phone with three alarms. The list of reasons
+        is the part to cut.
+      BQ4: >-
+        Too much, too fast, and then I panic about it. I text a lot. Good first
+        date is doing something with our hands so I do not have to sit still. I
+        open up basically instantly, that is not the problem. I shut down when
+        someone goes cold as a punishment.
+      BQ5: >-
+        Bright, exhausting, loyal. My best friend would say I am the most fun
+        and the least reliable person she knows, and that I apologise so much it
+        becomes its own burden. People get wrong that I do not care about
+        details. I care enormously and forget them anyway.
+
+  - email: andrei.demo@dating-demo.dev
+    display_name: Andrei
+    birth_date: "1979-07-02"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 33
+    age_pref_max: 50
+    city: Ploiesti
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I drive long haul, mostly Romania to Germany and back. In the cab I
+        listen to audiobooks and football. At home I have a workshop and I
+        restore old bicycles, slowly, one a winter. Nothing complicated about
+        it. I like a thing that is broken and then is not.
+      BQ2: >-
+        Someone honest and not in a hurry. I am forty-seven, I know what I am. She
+        should have her own house in order. Nice if she likes the road, I would
+        take her along a few times. Dealbreaker is lying, even the small ones. I
+        cannot get past it.
+      BQ3: >-
+        My brother asked to borrow money again and I said no for the first time
+        in twenty years. He said things about our mother. I did not shout, I
+        just left. I felt sick for a week. I would say no again but I would say
+        it sitting down, not in the doorway with my keys in my hand.
+      BQ4: >-
+        I am quiet and I fix things, that is how you know. I do not have clever
+        conversation. First date, a coffee, an hour, no pressure on anybody. I
+        open up after the second or third time. I shut down if I am being
+        laughed at for how I talk.
+      BQ5: >-
+        Hard-working, stubborn, not much of a talker. My friend since school
+        says I would give you the coat off my back and never say a word about
+        anything that hurts. People think a driver is uneducated. I have read
+        more books than most people I meet, I just heard them.
+
+  - email: teodora.demo@dating-demo.dev
+    display_name: Teodora
+    birth_date: "2001-11-23"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 20
+    age_pref_max: 30
+    city: Craiova
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Pharmacy school, which eats most of it, and the choir at my church on
+        Thursdays and Sundays. I am not a good singer, I am a reliable one,
+        which in an alto section is more useful. I learn by rewriting notes by
+        hand three times, which everyone tells me is inefficient and I do not
+        care.
+      BQ2: >-
+        Someone gentle and serious. I would like faith to be shared, or at least
+        respected, and I know that narrows things and I am at peace with it.
+        Nice-to-have is closeness with his family. Dealbreaker is contempt for
+        what I believe, delivered as a joke, which is how it usually arrives.
+      BQ3: >-
+        My mother wants me home after the degree and I want to stay in the city.
+        I said, badly, that she was trying to keep me small. She went quiet for
+        three days. I would keep the wanting to stay and lose that sentence
+        entirely, because it was not true and I knew it as I said it.
+      BQ4: >-
+        Formally, at first, which people find odd at twenty-four. I show
+        interest by remembering everything and asking about it later. A good
+        first date is a long walk and a cake somewhere. I open up when someone
+        is honest about doubt. I shut down when a conversation turns crude very
+        fast.
+      BQ5: >-
+        Careful, warm, a bit anxious. My closest friend says I plan my life like
+        an exam and that I apologise when someone else bumps into me. People
+        assume I am naive because I am religious and quiet. I have been told I
+        am the most quietly stubborn person in my year.
+
+  - email: mihnea.demo@dating-demo.dev
+    display_name: Mihnea
+    birth_date: "1987-04-30"
+    gender: man
+    interested_in: [woman, nonbinary]
+    age_pref_min: 27
+    age_pref_max: 42
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Drums. Jazz mostly, some function gigs when the rent needs it, and I tend
+        bar four nights a week, so the whole life is nocturnal and my neighbours
+        have been remarkably patient about it. I practise rudiments like a maniac,
+        forty minutes a day, alone, to a click, which is the least glamorous thing
+        in music and the only part that reliably makes me better. Last week I
+        played a wedding and a free improv night in the same weekend and genuinely
+        enjoyed both, which would have embarrassed me at twenty-five.
+      BQ2: >-
+        Someone who has a discipline of her own. It does not have to be art, it
+        can be a sport or a trade or a language she has been chipping at for
+        years. I want to watch a person be serious about something without needing
+        me to validate it, because I am out four nights a week and cannot be
+        anyone's whole evening. Nice-to-have is a tolerance for the hours and for
+        a flat that always has a cymbal bag in the hallway. The dealbreaker is
+        anyone who wants me to grow out of this.
+      BQ3: >-
+        The bandleader cut my solo section without telling me beforehand, and I
+        sulked through the entire second set and played badly on purpose, which is
+        the most childish thing I have done in years and everyone on that stage
+        knew it. He noticed, obviously. I apologised the next day and then asked
+        him why he had done it, and the answer was good and slightly humiliating
+        for me. I would keep the asking why. The sulk cost me a residency I
+        wanted.
+      BQ4: >-
+        I am charming and a fair amount of it is a stage habit, so I try to catch
+        myself doing it and stop. I show interest by playing someone a record and
+        watching their face rather than the speakers, which tells me more than any
+        conversation would. A good first date is late and involves music but not a
+        concert, because at a concert I cannot hear you and I will end up watching
+        the drummer. I open up after about the third hour. I shut down when
+        someone talks through a song they asked to hear.
+      BQ5: >-
+        Generous, hopeless with admin, and present when it actually counts. My
+        oldest friend would say I am the best hang in the city and the worst
+        person alive to lend a book to, and that I answer messages roughly a week
+        late without noticing. People get wrong that I am some kind of party. I am
+        a shift worker with sore wrists who is usually quite tired and, on
+        balance, quite happy.
+
+  - email: zsofia.demo@dating-demo.dev
+    display_name: Zsofia
+    birth_date: "1992-09-17"
+    gender: woman
+    interested_in: [woman]
+    age_pref_min: 26
+    age_pref_max: 40
+    city: Targu Mures
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I teach Hungarian literature to fifteen-year-olds who would rather be
+        anywhere else, and I translate poetry into Romanian on weekends for a
+        tiny journal that pays in copies. The translating is the real love. I
+        will spend four hours on one line and then change it back. Two languages
+        at home since birth, so both of them feel slightly borrowed.
+      BQ2: >-
+        Someone patient with silence. I need a lot of it. Nice-to-have is a
+        reader, but honestly I would rather someone who listens well than
+        someone with opinions about novels. Dealbreaker is nationalism of any
+        flavour, including the kind aimed at my own side.
+      BQ3: >-
+        A colleague said, half joking, that I teach in the wrong language for
+        this country. I laughed it off in the staff room and then wrote him a
+        two-page message at midnight, which he never answered. I would keep the
+        two pages and send them at nine in the morning instead, in person, in
+        fewer words.
+      BQ4: >-
+        Slowly and mostly by writing. I am much braver in text than in a room.
+        A good first date is a bookshop and then walking until it gets dark. I
+        open up when someone tells me something they have not polished. I shut
+        down when I am asked to explain my own existence as a curiosity.
+      BQ5: >-
+        Quiet, precise, a little melancholy and quite funny about it. My closest
+        friend says I make everything into a text to be interpreted, including
+        her. People get wrong that I am fragile. I am tired, which looks similar
+        from a distance.
+
+  - email: robert.demo@dating-demo.dev
+    display_name: Robert
+    birth_date: "1998-06-06"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 22
+    age_pref_max: 32
+    city: Oradea
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Gym six days a week and I sell software to companies that do not want
+        it. The gym is not about looking good any more, it is the only place my
+        head goes quiet. I track everything in a spreadsheet, which my friends
+        find hilarious.
+      BQ2: >-
+        Someone ambitious. I know that word is a red flag on here now but I mean
+        it plainly, I want someone building something. Nice-to-have is that she
+        can cook because I cannot. Dealbreaker is being made fun of for caring
+        about my work.
+      BQ3: >-
+        I lost a deal I had worked six months on and I was foul to my flatmate
+        that evening about the dishes, which were not the issue. He said, that
+        is not about plates, is it. I said no. That was the whole conversation
+        and it fixed it. I would have got there faster.
+      BQ4: >-
+        Confident on the surface, and I talk too much in the first hour because
+        I am nervous. First date is drinks somewhere loud, which is probably a
+        mistake. I open up in the car afterwards. I shut down if someone treats
+        me like a type.
+      BQ5: >-
+        Driven, blunt, softer than I look. My best mate says I would drop
+        anything for a friend and also that I make everything a competition
+        including sleeping. People get wrong that I am arrogant. I just do not
+        know how to be quiet yet.
+
+  - email: alina.demo@dating-demo.dev
+    display_name: Alina
+    birth_date: "1985-03-22"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 34
+    age_pref_max: 50
+    city: Berlin
+    country: Germany
+    opt_in: true
+    answers:
+      BQ1: >-
+        I am a dentist, which is not a hobby, so: swimming, and a very slow
+        project of learning to play the piano at forty, badly, on an upright I
+        bought from a woman moving back to Poland. I practise twenty minutes
+        before work. It is humiliating and I love it. Also I make plum jam every
+        September, more than any household could eat.
+      BQ2: >-
+        Someone who has also lived somewhere else and knows what it does to you.
+        Or someone at home in one place who will not find my homesickness
+        boring. Nice-to-have is a language in common besides English.
+        Dealbreaker is a man who thinks moving country was ambition; it was
+        mostly money.
+      BQ3: >-
+        My mother asked when I am coming back, on the phone, again, and I said
+        never, in a tone that was meant to hurt. It did. I called back the next
+        morning and said I meant not this year, and that I miss her, which was
+        the true sentence I had been avoiding for about eight years.
+      BQ4: >-
+        Practical. I feed people and I fix their teeth and I do not say much
+        about feelings for a long time. A first date I like is a market on a
+        Saturday, in daylight. I open up over food I cooked. I shut down when
+        someone treats me as exotic.
+      BQ5: >-
+        Organised, warm underneath, guarded in the first months. My friend from
+        university says I decide about people in five minutes and then spend a
+        year pretending I have not. People get wrong that I am fully settled
+        here. I have a suitcase mentality and a very nice flat.
+
+  - email: kai.demo@dating-demo.dev
+    display_name: Kai
+    birth_date: "1999-01-09"
+    gender: nonbinary
+    interested_in: [nonbinary, woman]
+    age_pref_min: 21
+    age_pref_max: 33
+    city: Cluj-Napoca
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Illustration, mostly for small publishers and one very demanding board
+        game company. I draw every day whether or not it is going well, which is
+        the only professional advice I have ever taken. Lately I have been
+        teaching myself to paint with a brush instead of a tablet and everything
+        looks like mud and I am enjoying the mud.
+      BQ2: >-
+        Someone with a settled sense of themselves so that mine is not the only
+        moving part. Nice-to-have is a person who makes things, any things.
+        Dealbreaker is someone who needs to think about my pronouns as a
+        political question rather than just say them.
+      BQ3: >-
+        My father used the wrong name at a family lunch and my aunt corrected
+        him and he got angry at her, not me, and I sat there and said nothing.
+        I was furious and also relieved. Looking back I would have said one
+        sentence, calmly, to him. Not for him. For me and for my aunt.
+      BQ4: >-
+        I draw people. Badly at first, on napkins, as a way of paying attention.
+        A good first date is an hour in a museum and two hours in a park. I open
+        up when someone is specific about what they liked. I shut down around
+        people who are curious about me in a documentary sort of way.
+      BQ5: >-
+        Gentle, watchful, stubborn about work. My closest friend says I am
+        endlessly kind to strangers and quietly brutal to myself. People get
+        wrong that I am shy. I am watching, and then I have opinions about
+        everything.
+
+  - email: gheorghe.demo@dating-demo.dev
+    display_name: Gheorghe
+    birth_date: "1968-05-13"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 45
+    age_pref_max: 65
+    city: Suceava
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Bees. Fourteen hives, which is a small operation by any real measure, and
+        it takes most of the good weather from April onwards. You learn bees by
+        standing still and watching them for a long time, not from books, though I
+        have read the books and argued with most of them. My wife died four years
+        ago this autumn and the bees are a large part of the reason I get up in
+        April and keep going until the frost.
+      BQ2: >-
+        A woman who talks. I have had enough of quiet houses to last me. She does
+        not need to care about the bees at all, she only needs to not mind honey
+        turning up in every room and on every surface in September. Nice-to-have
+        is grandchildren she is fond of, because I have three and they are around
+        often. The dealbreaker is pretending, in either direction. I am too old to
+        keep up a performance and too old to watch one.
+      BQ3: >-
+        My son wanted to sell his mother's house and I refused outright, and we
+        did not speak for two months. I said something about him never being here,
+        which was cruel and also not true, because he was here, more than I
+        admitted at the time. We sold it in the end and I think that was right. I
+        would keep the two months if that is genuinely what it took to get me
+        there, but I would take that one sentence back.
+      BQ4: >-
+        Slowly, and I bring things. Honey, walnuts, a jar of something from the
+        cellar. I never learned how to say a compliment out loud and I am not
+        going to learn it now at fifty-eight, so it arrives as a jar. A good first
+        date is a coffee in the afternoon with no talk about the past for the
+        first hour, so we can find out whether we like each other before we find
+        out what we have lost. I open up in a car or a workshop, never across a
+        table.
+      BQ5: >-
+        Quiet, steady, and thoroughly set in my ways. My neighbour of thirty years
+        would say I am the first man to turn up when something needs carrying and
+        the last one to ask anybody for anything. People assume that at fifty-
+        eight and a widower I must be finished with all of this. I am not
+        finished. I am only more careful about it than I was at thirty.
+
+  - email: bianca.demo@dating-demo.dev
+    display_name: Bianca
+    birth_date: "1993-10-28"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 27
+    age_pref_max: 40
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Honestly, work, and I am trying to make that less true. I am a corporate
+        lawyer and I am good at it and I am at about seventy percent burnt. The
+        thing that is actually mine is pottery on Wednesday evenings where I am
+        the worst in the class and nobody knows what I do for a living. I have
+        made eleven bowls. Two are usable.
+      BQ2: >-
+        Someone whose life is not also an emergency. I do not need him to fix my
+        hours, I need him to not add to them. Nice-to-have is being funny in a
+        dry way. Dealbreaker is a man who is competitive about how tired he is.
+      BQ3: >-
+        I missed my niece's birthday for a closing and my sister said, it is
+        fine, in the voice that means it is not. I got defensive and quoted the
+        deal size, which is a grotesque thing to say to your sister. I sent a
+        long apology. I have since put two Saturdays a month in the calendar as
+        blocked and I have defended them four times out of six.
+      BQ4: >-
+        I interview people. It is a professional deformation and I know it. On a
+        good first date I try to talk about something I am bad at, on purpose.
+        I open up when someone is unimpressed by the job title. I shut down when
+        someone tells me I need to relax.
+      BQ5: >-
+        Sharp, driven, funnier than my emails. My oldest friend says I treat rest
+        like a task with deliverables. People get wrong that I am cold in the
+        first meeting; I am in negotiation mode until about the third hour.
+
+  - email: tudor.demo@dating-demo.dev
+    display_name: Tudor
+    birth_date: "1991-02-04"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 25
+    age_pref_max: 38
+    city: Sibiu
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Firefighter, twenty-four on, seventy-two off, and in those seventy-two I
+        am mostly in the garden or asleep. I grow chillies, far too many, and I
+        give them away in little bags like a strange man. I learn everything by
+        doing it wrong first, which in my job is discouraged, so I get it out of
+        my system at home.
+      BQ2: >-
+        Someone with her own weather. I am away in blocks and I cannot be the
+        only thing happening. Nice-to-have is that she is not squeamish, because
+        the stories come out eventually. Dealbreaker is anyone who thinks the
+        uniform is the personality.
+      BQ3: >-
+        We lost a call, a bad one, and at home my girlfriend at the time asked
+        how it went and I said fine and went to the garden for three hours. That
+        was the disagreement, really. She left about a month later. I would say
+        the one sentence now: it was bad, I do not want to talk about it, stay
+        anyway.
+      BQ4: >-
+        Dry jokes, mostly. I show interest by turning up with the right tool for
+        a problem you mentioned once. Good first date is short and outdoors and
+        I will probably be a bit tired. I open up after midnight or not at all.
+        I shut down if I am pushed to talk on a schedule.
+      BQ5: >-
+        Calm, dry, hard to rattle and hard to reach. My watch commander would
+        say I am the most reliable man on shift and the least likely to say what
+        is wrong. People get wrong that I am some hero type. It is a job with
+        good pension terms and a lot of paperwork.
+
+  - email: lavinia.demo@dating-demo.dev
+    display_name: Lavinia
+    birth_date: "1988-12-19"
+    gender: woman
+    interested_in: [man, woman]
+    age_pref_min: 30
+    age_pref_max: 45
+    city: Constanta
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Marine biology, specifically the very unglamorous end of it: sediment
+        samples and a lot of spreadsheets about a sea that is in trouble. I dive
+        when the budget allows. I read papers the way other people read gossip,
+        and I get genuinely angry about mussels. Last month I spent a whole
+        Sunday identifying something that turned out to be a bit of plastic.
+      BQ2: >-
+        Curiosity that survives detail. Plenty of people love the sea in the
+        abstract and glaze over in minute two. Nice-to-have is someone who can
+        be alone in a tent for a week. Dealbreaker is climate cynicism as a
+        personality.
+      BQ3: >-
+        My co-author wanted to soften a conclusion for a funder and I said, in
+        front of the group, that this was how you become useless. It was true
+        and it was a public execution. We compromised on the wording and it was
+        fine. I would have said the same thing in his office instead.
+      BQ4: >-
+        I info-dump, which is either charming or a trial. I show interest by
+        sending long messages at strange hours. A good first date is a beach in
+        winter, which weeds people out efficiently. I open up when someone asks
+        a real technical question. I shut down when someone is bored and
+        pretends not to be.
+      BQ5: >-
+        Intense, absent-minded, warm once the sample is logged. My best friend
+        says I am the smartest person she knows and cannot be trusted to eat
+        lunch. People get wrong that I am unavailable. I am busy, which is
+        different, and I make time badly but I make it.
+
+  - email: darius.demo@dating-demo.dev
+    display_name: Darius
+    birth_date: "2003-08-15"
+    gender: man
+    interested_in: [man]
+    age_pref_min: 18
+    age_pref_max: 27
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Coffee, which is my job and also the thing I am annoying about. I am
+        learning to roast on a tiny sample roaster in a friend's garage and
+        ruining a lot of beans. Also I have started going to a queer film club
+        on Tuesdays, which is my first real attempt at having a community rather
+        than a group chat.
+      BQ2: >-
+        Someone a bit further along than me who is not smug about it. I came out
+        eighteen months ago and I am behind on everything. Nice-to-have is
+        patient. Dealbreaker is anyone who makes me feel like a beginner as a
+        joke.
+      BQ3: >-
+        I told my mother, finally, and she cried, and I said something like, so
+        this is about you now, which was unfair and out of fear. She has been
+        better than I expected since. I would keep saying it. I would not lead
+        with the knife.
+      BQ4: >-
+        Nervous, over-polite, and I laugh at things that are not funny. I show
+        interest by making someone a very specific coffee. Good first date is
+        daytime and short so I do not spiral. I open up when someone admits to
+        being nervous first. I shut down when I feel watched in public.
+      BQ5: >-
+        Sweet, anxious, keen. My best friend says I say sorry constantly and
+        would carry her home from anywhere. People get wrong that I am confident
+        because I am chatty at work. That is a counter with a machine between us.
+
+  - email: otilia.demo@dating-demo.dev
+    display_name: Otilia
+    birth_date: "1974-06-25"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 42
+    age_pref_max: 60
+    city: Arad
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Walking in the mountains, two or three days at a time, with a pack and a
+        bad knee. My son moved to Spain last year and the house went very quiet,
+        and this is what I did about it instead of the other options. I plan
+        routes obsessively in the evenings, which is half the pleasure. I have
+        started going with a small group of women who are all recently
+        something.
+      BQ2: >-
+        A man who has made his peace with his own life. At fifty-two I am not
+        looking for a project or to be one. Nice-to-have is fitness enough for a
+        long walk. Dealbreaker is someone who wants a housekeeper with benefits;
+        I did twenty-six years of that.
+      BQ3: >-
+        My ex-husband turned up at the house about some paperwork and made a
+        comment about the state of the garden. I said more than I meant to,
+        about the garden and about everything else, on the doorstep, where the
+        neighbours could hear. I regret the doorstep. I do not regret one word
+        of the content.
+      BQ4: >-
+        Direct, which men my age often find alarming. I show interest by
+        inviting someone on a walk that is slightly too hard for them. I open up
+        after about four hours of walking, which is the whole method really.
+        I shut down if someone tells me what I must be feeling.
+      BQ5: >-
+        Independent, funny, a bit hard. My sister says I would rather carry
+        something heavy than admit it is heavy. People get wrong that I am
+        bitter about the divorce. I am relieved and occasionally lonely, which
+        are not the same thing.
+
+  - email: stefan.demo@dating-demo.dev
+    display_name: Stefan
+    birth_date: "1996-04-03"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 23
+    age_pref_max: 33
+    city: Bacau
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Board games, the heavy kind with a rulebook like a tax form, and I host
+        on Thursdays. Also I write backend code for a logistics company, which
+        is the same hobby with worse rules. I learn by reading everything first,
+        which makes me slow to start and quite hard to beat.
+      BQ2: >-
+        Someone who will tolerate the Thursdays and maybe once a month join
+        them. Nice-to-have is a competitive streak. Dealbreaker is contempt for
+        things people enjoy, that whole tone of, you are a grown man playing
+        with cardboard. Yes. Yes I am.
+      BQ3: >-
+        My friend accused me of always playing to win rather than to have fun,
+        after I did something ruthless to him in a game. I said it was the
+        correct move. Technically true, socially catastrophic. I apologised
+        properly a week later. I have since learned to lose to new players on
+        purpose and I feel nothing about it.
+      BQ4: >-
+        Awkward and then fine. I over-prepare. I have literally looked up
+        conversation topics, which I am admitting here for accuracy. Good first
+        date has an activity so there are no silences I have to fill. I open up
+        over a shared task. I shut down when someone is loud in a way I cannot
+        predict.
+      BQ5: >-
+        Reliable, pedantic, quietly funny. My oldest friend says I would help
+        anyone move house and would also correct their grammar while doing it.
+        People get wrong that I am not interested; I am just waiting for a gap
+        in the conversation that never comes.
+
+  - email: carmen.demo@dating-demo.dev
+    display_name: Carmen
+    birth_date: "1981-09-11"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 35
+    age_pref_max: 52
+    city: Pitesti
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        My salon, twelve years now, and it is not just work, it is where I know
+        everybody. I hear about every divorce in this town before the lawyers
+        do. Outside it, I dance, badly and enthusiastically, and I have a
+        vegetable patch at my mother's. I learn by watching someone do it once
+        and then doing it wrong until it is right.
+      BQ2: >-
+        A man who talks to people. I cannot be with someone silent, I would go
+        mad. Nice-to-have is that he dances, but nobody does, so fine.
+        Dealbreaker is looking down on people who work with their hands, which
+        is most of my family and me.
+      BQ3: >-
+        A woman who had been coming for eight years told me I had ruined her
+        colour and demanded it free, in front of a full salon. I gave it free
+        and then said, very calmly, that she should find another salon. My hands
+        shook after. I would keep both halves, honestly. That is the only time
+        I have done it.
+      BQ4: >-
+        Loud. I laugh too much and I touch your arm. First date is anywhere
+        with people and noise, I do not like quiet restaurants, I feel watched.
+        I open up immediately, that is not a virtue, it is just how I am built.
+        I shut down when a man is stingy, and I do not mean about money only.
+      BQ5: >-
+        Warm, nosy, exhausting in a good way, my friends say. My best friend
+        says I give advice nobody asked for and would sit with you in a hospital
+        for three days. People get wrong that I am not serious. I built a
+        business from one chair.
+
+  - email: nour.demo@dating-demo.dev
+    display_name: Nour
+    birth_date: "1995-05-27"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 25
+    age_pref_max: 38
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I am a resident in internal medicine, so what I love and what I do are
+        the same thing and I have very little left over. What is mine is
+        cooking my grandmother's food from memory and phone calls, badly,
+        because nothing is written down. I came here at nine from Aleppo. The
+        food is the part of home I can still make.
+      BQ2: >-
+        Someone kind in a way that is boring to describe and rare in practice.
+        Nice-to-have is curiosity about where I am from that does not become the
+        whole conversation. Dealbreaker is a man who needs me to represent
+        something, either as a story about integration or as a problem.
+      BQ3: >-
+        A consultant corrected me in front of a patient in a way that was about
+        my accent, not my medicine. I said nothing then, finished the round, and
+        asked him afterwards to explain the clinical point, which he could not.
+        I would keep that exactly. Saying nothing in the room was the right call
+        and it still cost me the whole night.
+      BQ4: >-
+        Quietly. I ask about your family early, which I am told is intense. A
+        good first date is food, made by someone, anywhere. I open up when
+        someone is unhurried. I shut down when a man decides in advance what my
+        life must have been.
+      BQ5: >-
+        Serious, warm, very tired. My closest friend says I mother everyone and
+        will not let anyone do it back. People get wrong that I am reserved. I
+        am careful in the first hour and then I am the loudest person at the
+        table.
+
+  - email: paul.demo@dating-demo.dev
+    display_name: Paul
+    birth_date: "1972-11-08"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 40
+    age_pref_max: 58
+    city: Brasov
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Carpentry, furniture mostly, and I am slow because I am doing it
+        properly. I have been sober six years and the workshop is a large part
+        of why. Wood does not care how you feel, it only cares whether you
+        measured. I learn from old men and old books and by ruining expensive
+        oak.
+      BQ2: >-
+        Someone honest about her own difficult parts. I have none of the
+        patience I used to have for pretending. Nice-to-have is that she has
+        made something with her hands. Dealbreaker is heavy drinking, which is
+        not a judgement, it is just a life I cannot be near.
+      BQ3: >-
+        My daughter asked me, at a family dinner, why I was not at her
+        graduation. Which was ten years ago and I was drunk. I wanted to explain
+        the illness and I heard myself starting and I stopped and said, because
+        I was drinking, and I am sorry. That was the whole answer and it was the
+        first true one I had given her.
+      BQ4: >-
+        Slowly and with my hands. I will make you something before I tell you
+        anything. A good first date is a walk and a coffee, in the day, and I
+        will say early on that I do not drink, to get it out of the way. I open
+        up more easily than I used to. I shut down if I am being tested.
+      BQ5: >-
+        Quiet, deliberate, still a bit ashamed and working on that. My sponsor
+        would say I am the most patient man in the room and the hardest on
+        myself. People get wrong that the sobriety makes me fragile. It is the
+        most solid thing I own.
+
+  - email: delia.demo@dating-demo.dev
+    display_name: Delia
+    birth_date: "2000-07-14"
+    gender: woman
+    interested_in: [nonbinary, woman, man]
+    age_pref_min: 20
+    age_pref_max: 32
+    city: Cluj-Napoca
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I DJ, mostly small rooms and one residency that pays actual money. I dig
+        for records for hours, which is the part I would do for free. Days I
+        work in a record shop, so it is all one long shift really.
+      BQ2: >-
+        Someone independent who does not need me every weekend, because my
+        weekends are gone. Nice-to-have is that they can dance without being
+        drunk. Dealbreaker is possessiveness, which comes up a lot given the
+        job.
+      BQ3: >-
+        A promoter did not pay me and I called him out in a group chat instead
+        of one to one. I got paid, and I also got a reputation. Feeling was pure
+        rage. I would still get the money. I would use one message to him first.
+      BQ4: >-
+        I go cool and detached which is a defence and everyone sees through it.
+        First date is a walk with headphones split between us, unironically.
+        I open up at about four in the morning. I shut down if someone is trying
+        to be impressive.
+      BQ5: >-
+        Blunt, loyal, flaky about anything before noon. My best friend says I am
+        the easiest person to be around and the hardest to actually pin down.
+        People get wrong that I am cold. I am just not going to perform warmth
+        in a loud room.
+
+  - email: marius.demo@dating-demo.dev
+    display_name: Marius
+    birth_date: "1989-03-05"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 28
+    age_pref_max: 42
+    city: Baia Mare
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Electrician by trade, mountain rescue by volunteering, and the second
+        one eats every second weekend and some nights. It is training more than
+        rescues, which people do not realise: ropes, radios, carrying a person
+        who weighs more than you down a slope in the dark. I learn by drilling
+        the same thing until my hands do it without me.
+      BQ2: >-
+        Someone who will not resent the pager. That is the whole test really. I
+        have lost two relationships to a phone going off at eleven at night.
+        Nice-to-have is that she is outdoors in some way. Dealbreaker is being
+        asked to choose, because I will choose wrong and we will both know it.
+      BQ3: >-
+        On a callout I overruled a younger team member about a route and I was
+        short with him in front of everyone. He was actually right about the
+        snow. I told him so at the debrief, out loud, which is the only way that
+        counts in a team. I would keep the overruling in the moment and lose the
+        tone.
+      BQ4: >-
+        Practical and a bit shy. I show interest by teaching someone something,
+        which is apparently patronising and I am working on it. A good first
+        date is a short hike and a beer after. I open up while walking. I shut
+        down if someone treats the volunteering as a hobby I should grow out of.
+      BQ5: >-
+        Solid, calm under pressure, useless at replying to messages. My team
+        would say I am the first one out of bed and the last to say if something
+        got to me. People get wrong that I am fearless. I am scared quite often
+        and I have a checklist for it.
+
+  - email: roxana.demo@dating-demo.dev
+    display_name: Roxana
+    birth_date: "1997-12-01"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 25
+    age_pref_max: 36
+    city: Iasi
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I am three years into a doctorate on interwar rural credit unions, which
+        is as thrilling as it sounds and I mean that sincerely. I spend days in
+        archives reading handwriting that hates me. I have a growing side
+        obsession with amateur radio, which I got into because a source
+        mentioned it and I fell down the hole. I learn by reading everything and
+        then over-explaining it to whoever is nearest.
+      BQ2: >-
+        Someone who will let me talk for twenty minutes and then say something
+        that changes my mind. Nice-to-have: patience with academic poverty until
+        about thirty-two. Dealbreaker is a man who is threatened by the doctorate,
+        which is a surprisingly common experience and always announces itself
+        early as a joke.
+      BQ3: >-
+        My supervisor said my second chapter was unpublishable, in an email, in
+        one line. I wrote a three-page defence and did not send it, thank god,
+        and slept, and then asked for a meeting where I mostly listened. He was
+        right about two of the four things. The not sending is the part I am
+        proud of and it took me until twenty-eight to learn.
+      BQ4: >-
+        I talk too much and I know the exact moment I have gone too long and I
+        keep going. A good first date is a museum or a long walk with a
+        destination. I open up when someone disagrees with me on facts. I shut
+        down when someone calls me intense as though it settles something.
+      BQ5: >-
+        Enthusiastic, verbose, more insecure than I look. My best friend says I
+        turn every conversation into a seminar and would drop everything if she
+        called. People get wrong that I am confident because I am loud about
+        ideas. I am confident about the archives and nothing else.
+
+  - email: alexandru.demo@dating-demo.dev
+    display_name: Alex
+    birth_date: "1994-10-10"
+    gender: other
+    interested_in: [woman, nonbinary, other]
+    age_pref_min: 24
+    age_pref_max: 40
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I do lighting for a small theatre, which means I spend my life up a
+        ladder in the dark listening to actors say the same line forty times. I
+        love it more than is reasonable for the money. On days off I make
+        playlists like they are letters and I go to other people's shows and
+        take notes on the lighting, which makes me terrible company at the
+        theatre.
+      BQ2: >-
+        Someone at ease with things being unfixed, because my gender is and my
+        schedule is. Nice-to-have is that they have a job with normal hours so
+        one of us knows what day it is. Dealbreaker is needing me to be legible
+        to their family before they have decided about me themselves.
+      BQ3: >-
+        The director wanted a cue I thought was wrong and I went around him to
+        the designer instead of arguing in the room. He found out. He said, you
+        made me look stupid in my own production, and he was right. We fixed it
+        and the cue is still wrong and it is his to be wrong about. I would go
+        to him first now, every time.
+      BQ4: >-
+        I flirt through work. I will show you the thing I am proud of, which is
+        very exposing and reads as casual. A good first date is a show, anything,
+        even a bad one, and then arguing about it. I open up in the dark, walking
+        home. I shut down when someone treats my pronouns as a test they are
+        passing.
+      BQ5: >-
+        Watchful, wry, high standards for things nobody notices. My oldest
+        friend says I am the calmest person in a crisis and impossible to reach
+        for three weeks at a time when a show is on. People get wrong that I am
+        cool about everything. I am extremely earnest about about four things.
+
+  - email: simona.demo@dating-demo.dev
+    display_name: Simona
+    birth_date: "1986-08-21"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 32
+    age_pref_max: 46
+    city: Vienna
+    country: Austria
+    opt_in: true
+    answers:
+      BQ1: >-
+        I do not have hobbies, I have shifts, and I am saying that honestly
+        rather than sadly. I came here at twenty-four as a nanny and requalified
+        as a nurse at thirty-three, which took six years of evenings. What I do
+        for pleasure is long phone calls and swimming and one very silly reality
+        show. I am learning to have free time. It is a skill I did not practise.
+      BQ2: >-
+        Someone hard-working and not bitter about it. I have met a lot of men
+        abroad who are angry at the whole world. Nice-to-have is that he wants a
+        family, because I do, and I would rather say it now than in month eight.
+        Dealbreaker is a man who has never once been alone in a foreign country.
+      BQ3: >-
+        My employer, the family I nannied for, asked me to work a Christmas
+        after eight years, and I said no for the first time. She said, after
+        everything we have done for you. I said, I have done a lot for you too,
+        and my voice shook. We are still in touch. That sentence took eight
+        years to arrive and I would say it in year one now.
+      BQ4: >-
+        Practical and quite shy. I show interest by taking care of small things
+        without being asked. Good first date is a walk and cake, in the
+        afternoon, because I am usually working nights. I open up when someone
+        is patient with my German. I shut down when someone jokes about Romanians.
+      BQ5: >-
+        Steady, careful with money, softer than I let on at work. My friend from
+        the old job says I never complain and never ask, which she does not mean
+        as a compliment. People get wrong that I am simple because I speak
+        carefully. I am careful, not simple.
+
+  - email: ciprian.demo@dating-demo.dev
+    display_name: Ciprian
+    birth_date: "1993-01-16"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 26
+    age_pref_max: 38
+    city: Galati
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I weld in the shipyard, which is loud and hot and I am good at it, and I
+        write, which nobody at the yard knows. Short things, mostly, and I have
+        published three in a small magazine under my own name and lived through
+        the terror of that. I learn welding by repetition and writing by reading
+        people better than me and stealing.
+      BQ2: >-
+        Someone who does not think those two things are a contradiction that
+        needs explaining. Nice-to-have is that she reads, though I would rather
+        she read cookbooks with real attention than novels out of duty.
+        Dealbreaker is snobbery in either direction, and I have met both.
+      BQ3: >-
+        A colleague found out about the poems and read one out at lunch in a
+        stupid voice. I laughed along, which was cowardice, and then did not
+        speak to him for a month, which was worse because he never knew why. I
+        would rather have said, that is mine, do not, on the spot, and taken the
+        week of jokes.
+      BQ4: >-
+        Awkward, formal, and then far too honest at about hour three. I show
+        interest by writing something and not sending it, which helps nobody.
+        Good first date is walking by the water in the evening. I open up when
+        someone is quiet with me comfortably. I shut down when I am being
+        managed.
+      BQ5: >-
+        Reserved, intense, funnier in writing. My best friend from school says I
+        am the most loyal person he knows and that I disappear into my own head
+        for days. People get wrong which one is the real me. Both are, and the
+        welding pays.
+
+  - email: elena.demo@dating-demo.dev
+    display_name: Elena
+    birth_date: "1969-02-07"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 48
+    age_pref_max: 65
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I taught mathematics for thirty-one years and I retired in June and I
+        have no idea what to do with myself, so: chess online at an embarrassing
+        hour, two cats, and I have started translating problem sets for a
+        tutoring charity because apparently I cannot stop. I learn by working
+        the problem myself before I read the solution, always, it is a
+        compulsion.
+      BQ2: >-
+        Someone with an interior life. I do not need to be entertained, I need
+        not to be bored. Nice-to-have is that he plays something, cards, chess,
+        anything with rules. Dealbreaker is a man looking for a nurse or a purse,
+        as my friend puts it, and at my age both are on the menu.
+      BQ3: >-
+        A younger colleague redesigned the curriculum and I said, in a staff
+        meeting, that it was fashionable nonsense. She was hurt and I was
+        partly right, which is the worst combination. I found her after and said
+        the fashionable was unnecessary. We ended up co-writing the thing. The
+        content stands, the adjective does not.
+      BQ4: >-
+        I am formal and then, once I decide about somebody, extremely direct. I
+        show interest by arguing. A good first date is a long coffee, no
+        alcohol, mid-afternoon, so that either of us can leave at five. I open
+        up when someone admits they do not know something. I shut down when a
+        man explains my own subject to me, which still happens at fifty-seven.
+      BQ5: >-
+        Exacting, dry, more solitary than is good for me. My oldest friend says
+        I have an answer for everything and a question for nothing. People get
+        wrong that I am severe. I am precise, and I laugh at almost anything if
+        it is clever.
+
+  - email: bogdan.demo@dating-demo.dev
+    display_name: Bogdan
+    birth_date: "2002-03-30"
+    gender: man
+    interested_in: [woman, nonbinary]
+    age_pref_min: 19
+    age_pref_max: 28
+    city: Timisoara
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Film school, skating, and filming skating, which is one thing pretending
+        to be three. I have been working on the same eight-minute short for
+        fourteen months and it is not good yet. I learn by watching a scene
+        forty times with the sound off.
+      BQ2: >-
+        Someone with taste I do not already share, so I get dragged somewhere.
+        Nice-to-have is that they are not on their phone constantly, which is
+        rich coming from me. Dealbreaker is cruelty for content, filming
+        somebody having a bad day and putting it up.
+      BQ3: >-
+        I told my co-director his edit was boring and I said it in front of the
+        crew. He did not speak to me for a week. He was right that I was
+        undermining him, I was right about the edit. I would keep the note and
+        give it in the car, not the room.
+      BQ4: >-
+        I go quiet and film things, which is a way of not being present that
+        looks like attention. Good first date is skating badly or a bad film at
+        the cheap cinema. I open up around one in the morning. I shut down if
+        someone is embarrassed to be seen with me.
+      BQ5: >-
+        Obsessive about one thing at a time, absent for everything else. My
+        friends say I am the funniest person in the group and impossible to get
+        hold of. People think I do not care about anything. I care about roughly
+        two things, enormously.
+
+  - email: irina.demo@dating-demo.dev
+    display_name: Irina
+    birth_date: "1990-06-18"
+    gender: woman
+    interested_in: [woman]
+    age_pref_min: 28
+    age_pref_max: 42
+    city: Cluj-Napoca
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        I started a company four years ago, eleven people now, and it is the
+        most interesting and most consuming thing I have ever done. I read about
+        organisational design the way some people read self-help. Outside it,
+        running, alone, early, because it is the only hour I do not talk. I am
+        genuinely trying to build a second thing in my life that is not the
+        company and I have failed at that for four years.
+      BQ2: >-
+        Someone with a life of her own that is not adjacent to mine. I do not
+        want to date the ecosystem. Nice-to-have is a person who will tell me
+        when I am being a founder at a dinner table. Dealbreaker is someone who
+        needs me to be smaller so that things feel even.
+      BQ3: >-
+        I had to let someone go who had been with us from month three, and she
+        said, you brought me here and you are dropping me. I said the honest
+        thing, which was that I hired her for a company that no longer exists
+        and I should have seen it a year ago. I cried afterwards and not in
+        front of her. I stand by all of it except the year.
+      BQ4: >-
+        I am intense and I move fast, which is either exhilarating or alarming.
+        I show interest by clearing the calendar, which for me is enormous. A
+        good first date is early evening with a hard stop, because the hard stop
+        makes me present. I shut down around people who are vague on purpose.
+      BQ5: >-
+        Driven, direct, warmer than the first impression. My co-founder says I
+        am the most decisive person she knows and that I mistake momentum for
+        happiness. People get wrong that I am married to the job. I am
+        overcommitted to it, which is a thing I can change and have not yet.
+
+  - email: rares.demo@dating-demo.dev
+    display_name: Rares
+    birth_date: "1984-09-24"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 30
+    age_pref_max: 46
+    city: Deva
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Two kids, nine and thirteen, half the week, and I coach their age group
+        at football on Saturdays, which is fourteen children and one whistle.
+        The thing that is only mine is fishing, very early, alone, maybe twice a
+        month. I learn everything from other fathers and from getting it wrong
+        in front of my daughter, who keeps score.
+      BQ2: >-
+        Someone patient, because my life is not flexible and will not be for
+        five years. Nice-to-have is that she likes children in the general
+        sense; she does not need to want mine, they have a mother. Dealbreaker
+        is anyone who makes me choose between a weekend with them and a weekend
+        with her.
+      BQ3: >-
+        My ex-wife changed the pickup day by text with two days' notice, again,
+        and I replied with a list of every previous time, which I actually had
+        in a note on my phone. She called me a bookkeeper. She is not wrong. I
+        would ask for one conversation on the phone instead of sending a
+        ledger to the mother of my children.
+      BQ4: >-
+        Plainly. I do not have the time or the ego for games. I will tell you
+        about the kids in the first hour, which some people find like a warning
+        label, and it is. Good first date is a coffee on a weekday. I open up
+        easily. I shut down if someone is competitive with my daughter for
+        attention.
+      BQ5: >-
+        Reliable, tired, quite funny at the right hour. My brother says I would
+        do anything for those kids and have not asked myself what I want since
+        2018. People get wrong that a single father is looking for a mother for
+        them. I am looking for someone for me.
+
+  - email: miruna.demo@dating-demo.dev
+    display_name: Miruna
+    birth_date: "1999-04-26"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 22
+    age_pref_max: 32
+    city: Alba Iulia
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Pastry. I start at four in the morning, which decides everything else
+        about my life. Laminated dough is the thing I am obsessed with right
+        now, the countable layers, the temperature, all of it. I learn by making
+        the same thing eighty times. I am asleep by nine most nights and I have
+        made peace with being the most boring twenty-seven-year-old alive.
+      BQ2: >-
+        Someone with early mornings of his own, or at least no expectation that
+        I will be at a bar at eleven. Nice-to-have is an appetite. Dealbreaker
+        is a man on a permanent diet who makes it everyone's business.
+      BQ3: >-
+        The chef blamed me for a batch that failed and I knew it was the oven
+        and I said nothing for three days. Then I brought him the temperature
+        log, which I had been keeping anyway, and he apologised. The log was the
+        right instinct. The three days of feeling sick were unnecessary.
+      BQ4: >-
+        I bring food. It is not subtle. I show interest by asking what someone
+        ate as a child, which is my favourite question in the world. Good first
+        date is breakfast or an early walk. I open up quickly over anything
+        sweet. I shut down if someone is rude to service staff, obviously, but
+        also if they are rude about their own family.
+      BQ5: >-
+        Early, disciplined, sillier than I look. My best friend says I am the
+        most organised person she knows before noon and useless after six.
+        People get wrong that pastry is dainty. It is heavy trays and burns and
+        a lot of standing.
+
+  - email: sorin.demo@dating-demo.dev
+    display_name: Sorin
+    birth_date: "1977-07-19"
+    gender: man
+    interested_in: [man, woman]
+    age_pref_min: 35
+    age_pref_max: 55
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Cycling, long distances, the kind where you leave at five and come back
+        at three and nobody has said a word for hours. I work in infrastructure,
+        servers, twenty-two years of it. Divorced three years, and the bike is
+        how I got through it without becoming somebody unpleasant. I learn by
+        maintenance, on the bike and I suppose otherwise.
+      BQ2: >-
+        Someone who has done some thinking about themselves. I did fifteen years
+        with a person who had not, and I had not either. I am bisexual and I
+        came to that late and openly, and I would want that to be uncomplicated
+        for whoever this is. Dealbreaker is anyone who needs it to be a phase or
+        a secret.
+      BQ3: >-
+        My ex-wife and I disagreed about telling our son why we separated, and I
+        wanted the truth and she wanted a simpler version. I pushed hard,
+        because I was tired of simpler versions. We told him a middle thing.
+        He is nineteen and we have since had the real conversation, and it was
+        fine. I would push again, and I would be less righteous about it.
+      BQ4: >-
+        Calm and slow and I ask a lot. I show interest by planning routes, which
+        is the only romantic gesture I have. Good first date is coffee and then
+        a walk that goes on longer than planned. I open up on the bike or in a
+        car. I shut down when someone is performing certainty.
+      BQ5: >-
+        Even-tempered, private, late to a lot of things. My closest friend says
+        I am the person who notices when someone has gone quiet at a table and
+        that I took forty years to notice it about myself. People get wrong that
+        I am uncomplicated. I am just calm about the complications now.
+
+  - email: anca.demo@dating-demo.dev
+    display_name: Anca
+    birth_date: "1992-05-02"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 27
+    age_pref_max: 40
+    city: London
+    country: United Kingdom
+    opt_in: true
+    answers:
+      BQ1: >-
+        Running, seriously, to the point where it structures the week. Three
+        marathons, aiming at a time I probably cannot hit. I am a
+        physiotherapist, so I also spend all day telling other people to rest,
+        which is very funny to my colleagues. I learn from data, splits, heart
+        rate, all of it, and then I ignore the data on race day and go too fast.
+      BQ2: >-
+        Someone who has something they are disciplined about, even if it is not
+        physical. Nice-to-have is that he can hold a conversation at six in the
+        morning. Dealbreaker is a man who is threatened by a woman who is fitter
+        than him, and I say that having lost two years to one.
+      BQ3: >-
+        My flatmate said I had become no fun, in a joking way, at a dinner, in
+        front of five people. I said something cutting about her hangovers and
+        the table went quiet. We talked the next day and I said the truth, which
+        is that I am lonely in this discipline and I hear the joke as a verdict.
+        The cutting remark is the only part I would take back.
+      BQ4: >-
+        Competitively, which is a flaw. I show interest by suggesting we do
+        something physical, which is not always read the way I mean it. Good
+        first date is a walk on a Sunday morning. I open up when I am moving.
+        I shut down when someone tells me it is just running.
+      BQ5: >-
+        Disciplined, warm, a bit rigid. My best friend from home says I have
+        become very English about feelings and that I would drive four hours to
+        collect anyone from anywhere. People get wrong that I am hard. I am
+        organised, and I cry at almost every film.
+
+  - email: levente.demo@dating-demo.dev
+    display_name: Levente
+    birth_date: "1995-11-11"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 24
+    age_pref_max: 36
+    city: Sfantu Gheorghe
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Forestry engineer, so I walk in woods for a living and then, being an
+        idiot, I walk in woods on the weekend. Mushrooms in autumn, obsessively,
+        and I have a notebook of spots I would not show my own brother. I learn
+        from an old man in the next village who tells me almost nothing and
+        expects me to notice.
+      BQ2: >-
+        Someone who can be quiet outdoors without needing to fill it. Language
+        matters less than people think; I grew up Hungarian and work in
+        Romanian and I am at home in both. Nice-to-have is that she is not
+        frightened of a village. Dealbreaker is snobbery about small places.
+      BQ3: >-
+        I reported a logging company that a lot of local people work for. My
+        uncle told me I had made things hard for the family and he was right. I
+        said, so we should say nothing, and he said, yes, sometimes. I have not
+        changed my mind and I understand him now, which I did not then. I would
+        have gone to him before, not after.
+      BQ4: >-
+        Slow, and I do not say much. I show interest by taking someone to a
+        place I like, which is the most I have got. Good first date is a walk
+        with no fixed end. I open up on the third or fourth time, not before.
+        I shut down if someone mocks the accent or the village.
+      BQ5: >-
+        Quiet, patient, stubborn as a stump. My oldest friend says I never raise
+        my voice and never move an inch. People get wrong that I am simple
+        because I speak slowly. I choose the words, that is all.
+
+  - email: gabriela.demo@dating-demo.dev
+    display_name: Gabriela
+    birth_date: "1980-10-03"
+    gender: woman
+    interested_in: [man]
+    age_pref_min: 36
+    age_pref_max: 52
+    city: Chisinau
+    country: Moldova
+    opt_in: true
+    answers:
+      BQ1: >-
+        Salsa, three nights a week, which I started at thirty-eight after my
+        divorce because a friend dragged me and I cried in the car park before
+        going in. Now I teach the beginners class. By day I am an accountant,
+        which people find funny and I find restful. I learn by counting, in
+        dance and in ledgers, which is possibly the same skill.
+      BQ2: >-
+        A man who is not afraid of a room where women are having a good time
+        without him. Nice-to-have is that he dances, but I have stopped
+        requiring it because it eliminates nearly everybody. Dealbreaker is
+        jealousy about the dancing, which has ended two things already.
+      BQ3: >-
+        A student at the class was handsy with a beginner and I had to say
+        something in front of everyone. I was shaking and I said it badly, too
+        harshly, and he left and told people I humiliated him. I would say it
+        again. I would take him aside first, once, and only once.
+      BQ4: >-
+        Openly, and I touch people when I talk, which is the dancing. A good
+        first date is somewhere with music but where you can hear each other,
+        which barely exists. I open up fast and I regret it about a third of the
+        time. I shut down around men who need to be taught and then resent the
+        teaching.
+      BQ5: >-
+        Warm, direct, more anxious than I appear on a dance floor. My sister
+        says I am the bravest person she knows in a room of strangers and the
+        most frightened one on a phone call. People get wrong that I am looking
+        for fun. I had fun for six years. I am looking for something calm now.
+
+  - email: toma.demo@dating-demo.dev
+    display_name: Toma
+    birth_date: "1998-08-29"
+    gender: man
+    interested_in: [woman]
+    age_pref_min: 22
+    age_pref_max: 33
+    city: Bucharest
+    country: Romania
+    opt_in: true
+    answers:
+      BQ1: >-
+        Graphic design, mostly identity work for small places, and typography is
+        the part I could talk about until you leave. I am deaf, so I read a lot
+        and I watch a lot, and the visual thing is not unrelated to that. I
+        learn by copying things I admire until I understand why the spacing is
+        the way it is. Recently I have been setting Romanian text properly,
+        which almost nobody does.
+      BQ2: >-
+        Someone willing to learn some sign, eventually, not on day one. Mostly
+        someone patient with the mechanics: face me, do not shout, do not say it
+        does not matter when I ask you to repeat. Nice-to-have is a person who
+        writes well, because a lot of us will be in text. Dealbreaker is anyone
+        who treats communicating with me as a chore they are being good about.
+      BQ3: >-
+        A client kept doing calls and I kept asking for written notes and being
+        told it was easier to just hop on a call. I finally wrote a blunt email
+        saying I could not do the job that way. I was angry and it showed. They
+        apologised and we worked in writing after. I would keep the boundary and
+        write it a day later, when I was less furious.
+      BQ4: >-
+        Directly and in writing, which is my advantage. I show interest by
+        designing something small and stupid for someone, a little logo for a
+        joke. Good first date is somewhere quiet and well lit, which sounds
+        dull and is entirely practical. I open up quickly in text. I shut down
+        when someone gives up on a sentence and says never mind.
+      BQ5: >-
+        Observant, dry, more social than people expect. My best friend says I
+        notice everything and tell nobody, and that I am very hard to argue with
+        because I take a day to answer. People get wrong that deafness makes me
+        fragile in a group. I am fine. I just need the room to be lit.

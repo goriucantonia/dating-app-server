@@ -79,13 +79,6 @@ class OpenRouterProvider:
             raise TransientAIError(f"openrouter server error {resp.status_code}", **kw)
         if resp.status_code == 403:
             raise RefusedError(f"openrouter moderation refusal: {resp.text[:300]}", **kw)
-        if resp.status_code == 400 and "response_format" in resp.text:
-            # Explicit: this model really does reject native schemas. Remember
-            # it so we stop paying for the doomed attempt.
-            self._no_native_models.add(model)
-            raise NativeStructuredUnsupported(
-                f"model {model} rejects response_format json_schema", **kw
-            )
         if resp.status_code != 200 and "Provider returned error" in resp.text:
             # OpenRouter serves one model id from SEVERAL upstream providers and
             # picks per request. This body is OpenRouter telling us the UPSTREAM
@@ -101,6 +94,16 @@ class OpenRouterProvider:
             raise TransientAIError(
                 f"openrouter upstream provider error (retryable): {resp.text[:200]}",
                 **kw,
+            )
+        if resp.status_code == 400 and "response_format" in resp.text:
+            # Explicit: this model really does reject native schemas. Remember
+            # it so we stop paying for the doomed attempt. Checked AFTER the
+            # "Provider returned error" case above, so an upstream fault
+            # whose body happens to mention response_format cannot
+            # blacklist the model for the process (audit 2026-09-02).
+            self._no_native_models.add(model)
+            raise NativeStructuredUnsupported(
+                f"model {model} rejects response_format json_schema", **kw
             )
         if resp.status_code == 400 and sent_native_schema:
             # A bare 400 while we had a schema attached. OpenRouter routes one
@@ -122,11 +125,24 @@ class OpenRouterProvider:
                 f"openrouter error {resp.status_code}: {resp.text[:300]}", **kw
             )
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            # A 200 with an empty or HTML body (an aggregator interstitial).
+            # Transient: a retry is a fresh routing draw (D-008).
+            raise TransientAIError(
+                f"openrouter returned a non-JSON 200 body: {resp.text[:200]!r}", **kw
+            ) from exc
+        if not isinstance(data, dict):
+            raise TransientAIError(
+                f"openrouter returned a JSON {type(data).__name__}, not an object", **kw
+            )
         # OpenRouter can tunnel an upstream error inside a 200 body.
         if "error" in data:
             err = data["error"]
             code = err.get("code")
+            if isinstance(code, str) and code.isdigit():
+                code = int(code)  # "429" is 429
             if code == 429:
                 raise RateLimitedError(f"openrouter upstream rate limit: {err.get('message')}", **kw)
             if isinstance(code, int) and code >= 500:
@@ -156,7 +172,13 @@ class OpenRouterProvider:
         if finish == "content_filter":
             raise RefusedError("openrouter content filter refusal", **kw)
         content = (choice.get("message") or {}).get("content")
-        if not content:
+        if isinstance(content, list):
+            # Multimodal "parts" form. Only the text parts are ours to read;
+            # returning the list used to reach the Guard's `.strip()`.
+            content = "".join(
+                str(p.get("text", "")) for p in content if isinstance(p, dict)
+            )
+        if not isinstance(content, str) or not content:
             raise TransientAIError(f"openrouter returned empty content (finish={finish})", **kw)
         return content, finish
 

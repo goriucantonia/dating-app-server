@@ -578,4 +578,8 @@ class ChatMessage(Base):
     state: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     provider: Mapped[str | None] = mapped_column(Text)
     model_id: Mapped[str | None] = mapped_column(Text)
+    # The client's own id for a send (audit 2026-09-02). Unique per session
+    # where present, so a resend after a timeout returns the stored pair
+    # instead of posting the line twice.
+    client_message_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()

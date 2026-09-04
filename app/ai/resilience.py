@@ -21,7 +21,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from app.ai.base import RateLimitedError, RefusedError, TransientAIError
+from app.ai.base import AIError, RateLimitedError, RefusedError, TransientAIError
 from app.logging_setup import log_event
 
 logger = logging.getLogger("app.ai")
@@ -133,6 +133,33 @@ async def execute(
                 outcome="refused", error=str(exc),
             )
             raise
+        except AIError as exc:
+            # Fatal by classification (401, 402, missing key, a non-5xx
+            # tunneled error): not retried, but it still gets the mandatory
+            # line — a revoked key used to be invisible here (audit 2026-09-02).
+            log_event(
+                logger, "ai_call", level=logging.ERROR,
+                task=task, provider=provider, model=model, attempts=attempt,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                outcome="failed", error=str(exc),
+            )
+            raise
+        except Exception as exc:
+            # The boundary promise in base.py: "SDK/HTTP exceptions must never
+            # escape this module." A JSONDecodeError on a 200 with an HTML
+            # body, an AttributeError on a JSON array, an httpx transport
+            # error from an SDK — each used to walk past every caller's
+            # `except AIError` and land as a raw 500 with no ai_call line.
+            log_event(
+                logger, "ai_call", level=logging.ERROR,
+                task=task, provider=provider, model=model, attempts=attempt,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                outcome="failed", error=f"{type(exc).__name__}: {exc}"[:500],
+            )
+            raise AIError(
+                f"{provider} raised {type(exc).__name__}: {exc}"[:500],
+                task=task, provider=provider, model=model,
+            ) from exc
         else:
             log_event(
                 logger, "ai_call",

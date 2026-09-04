@@ -176,7 +176,9 @@ def _fixture_out(scenarios: list | None) -> dict | None:
     }
 
 
-def simulate_refusal(status: str, has_candidates: bool) -> tuple[str, str] | None:
+def simulate_refusal(
+    status: str, has_candidates: bool, judged: bool = True
+) -> tuple[str, str] | None:
     """Why `POST /simulate` says no, as (code, message) — or None to proceed.
 
     Pure so it can be unit-tested without a database, because the boundary it
@@ -196,6 +198,12 @@ def simulate_refusal(status: str, has_candidates: bool) -> tuple[str, str] | Non
     if status == "matched":
         return None
     if status == "failed" and has_candidates:
+        return None
+    if status == "complete" and not judged:
+        # The dates ran and the JUDGE did not (`judging_failed`). Judging is
+        # idempotent and the pipeline no-ops finished dates, so this retry
+        # costs only the judge calls — refusing it left every candidate
+        # unscored for good after one bad minute (audit 2026-09-02).
         return None
     # Named states, not a generic refusal: "you have not been matched yet" and
     # "this one already finished" are different things to be told.
@@ -248,7 +256,10 @@ async def simulate(
             .where(AnalysisCandidate.analysis_id == analysis.id)
         )
     ).scalar_one() > 0
-    refusal = simulate_refusal(analysis.status, has_candidates)
+    # `judged` is written by the pipeline on both exits; an analysis older
+    # than that key was judged the only way it could reach `complete`.
+    judged = bool((analysis.progress or {}).get("judged", True))
+    refusal = simulate_refusal(analysis.status, has_candidates, judged=judged)
     if refusal is not None:
         code, message = refusal
         in_progress = code == "simulation_in_progress"
@@ -288,7 +299,18 @@ async def list_dates(
         await session.execute(
             select(SimulatedDate, User)
             .join(User, User.id == SimulatedDate.candidate_user_id)
-            .where(SimulatedDate.analysis_id == analysis.id)
+            .join(
+                AnalysisCandidate,
+                (AnalysisCandidate.analysis_id == SimulatedDate.analysis_id)
+                & (AnalysisCandidate.candidate_user_id == SimulatedDate.candidate_user_id),
+            )
+            .where(
+                SimulatedDate.analysis_id == analysis.id,
+                # Rejected candidates are hidden from the candidates view;
+                # their dates must be hidden here too, or the screen shows a
+                # transcript with someone the user said no to.
+                AnalysisCandidate.status == "active",
+            )
             .order_by(SimulatedDate.created_at, SimulatedDate.ordinal)
         )
     ).all()

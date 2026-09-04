@@ -48,3 +48,30 @@ def test_matched_without_candidate_rows_is_still_allowed():
     # Pinned so a future edit does not quietly make the flag load-bearing for
     # every state.
     assert simulate_refusal("matched", has_candidates=False) is None
+
+
+# --- Re-judging a `complete` analysis whose judge never ran (audit 2026-09-02)
+
+
+def test_complete_but_unjudged_can_be_retried():
+    # The dates ran; the judge failed; the analysis landed `complete` with
+    # `progress.judged = False` so the transcripts stayed readable. Refusing
+    # `/simulate` here left every candidate unscored for good.
+    assert simulate_refusal("complete", has_candidates=True, judged=False) is None
+
+
+def test_complete_and_judged_is_still_refused():
+    code, message = simulate_refusal("complete", has_candidates=True, judged=True)
+    assert code == "not_ready_to_simulate"
+    assert "already run" in message
+
+
+def test_judged_defaults_to_true():
+    # An analysis older than the `judged` key reached `complete` the only way
+    # it could — through the judge — so the default must not reopen it.
+    assert simulate_refusal("complete", has_candidates=True)[0] == "not_ready_to_simulate"
+
+
+def test_judged_flag_does_not_widen_other_states():
+    for status in ("matching", "no_candidates"):
+        assert simulate_refusal(status, has_candidates=True, judged=False)[0] == "not_ready_to_simulate"

@@ -165,8 +165,15 @@ async def relaunch_stuck_analyses(app) -> dict[str, int]:
             start_pipeline(app, analysis.id)
         else:
             async def _rematch(analysis_id=analysis.id) -> None:
-                async with factory() as session:
-                    await start_and_run(session, app.state.ai_router, analysis_id)
+                try:
+                    async with factory() as session:
+                        await start_and_run(session, app.state.ai_router, analysis_id)
+                except Exception as exc:  # noqa: BLE001
+                    log_event(
+                        logger, "matching_crashed", level=logging.ERROR,
+                        analysis_id=str(analysis_id),
+                        error=f"{type(exc).__name__}: {exc}", relaunched=True,
+                    )
 
             task = asyncio.create_task(_rematch())
             _tasks.add(task)

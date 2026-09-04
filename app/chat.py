@@ -278,7 +278,8 @@ async def compact_if_needed(
 
 
 async def reply(
-    session: AsyncSession, router: TaskRouter, convo: ChatSession, text: str
+    session: AsyncSession, router: TaskRouter, convo: ChatSession, text: str,
+    client_message_id: str | None = None,
 ) -> ChatReply:
     """Persist the user message, one Guard call, persist and return the
     persona's line. Plain request–response — seconds, no job, no polling."""
@@ -292,14 +293,45 @@ async def reply(
         )
     ).scalar_one()
 
-    rows = await _load_messages(session, convo.id)
-    compacted = await compact_if_needed(
-        session, router, convo, rows,
-        user_name=me.display_name, match_name=them.display_name,
+    # One send at a time per session (audit 2026-09-02). Two concurrent sends
+    # computed the same next_seq; the second then WAITED the whole first
+    # reply on UNIQUE(session_id, seq) and failed with IntegrityError → 500.
+    # The row lock makes the second read the first's two rows and take N+3.
+    await session.execute(
+        select(ChatSession).where(ChatSession.id == convo.id).with_for_update()
     )
+    rows = await _load_messages(session, convo.id)
+    try:
+        compacted = await compact_if_needed(
+            session, router, convo, rows,
+            user_name=me.display_name, match_name=them.display_name,
+        )
+    except AIError as exc:
+        # A fold that fails must not take the reply with it: it used to
+        # escape as a raw 500 on EVERY send once history passed the fold
+        # point, which bricked the chat (audit 2026-09-02). History is
+        # intact (nothing is written before the fold commits) and nothing is
+        # pending, so NO rollback: one would expire `convo`, `me`, `them` and
+        # `snapshot`, and the next attribute read would be MissingGreenlet
+        # (review 2026-09-03). Reply on the unfolded window; fold next time.
+        rows = await _load_messages(session, convo.id)
+        compacted = False
+        log_event(
+            logger, "chat_compaction_failed", level=logging.ERROR,
+            session_id=str(convo.id), user_id=str(convo.user_id),
+            live_rows=len(rows), error=str(exc)[:500],
+        )
 
+    # A fold that ran COMMITTED, which released the row lock above; take it
+    # again so the seq below is still computed under it.
+    await session.execute(
+        select(ChatSession).where(ChatSession.id == convo.id).with_for_update()
+    )
     next_seq = (rows[-1].seq + 1) if rows else 1
-    user_row = ChatMessage(session_id=convo.id, seq=next_seq, sender="user", text_=text)
+    user_row = ChatMessage(
+        session_id=convo.id, seq=next_seq, sender="user", text_=text,
+        client_message_id=client_message_id,
+    )
     session.add(user_row)
     await session.flush()
 
@@ -339,6 +371,16 @@ async def reply(
         )
         raise ReplyFailed(str(exc)) from exc
 
+    if not str(result.get("reply") or "").strip():
+        # The schema has no minLength on `reply`; a blank reply would be a
+        # blank bubble. Same path as any other failed reply.
+        await session.rollback()
+        log_event(
+            logger, "chat_reply_failed", level=logging.ERROR,
+            user_id=uid, session_id=sid, seq=next_seq,
+            provider=provider.name, model=model, outcome="empty_reply",
+        )
+        raise ReplyFailed("the persona returned an empty reply")
     persona_row = ChatMessage(
         session_id=convo.id, seq=next_seq + 1, sender="persona",
         text_=result["reply"],

@@ -29,6 +29,7 @@ import uuid
 from sqlalchemy import MetaData, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.errors import ApiError
 from app.logging_setup import log_event
 from app.models import Base, User
 
@@ -153,8 +154,12 @@ async def delete_account(session: AsyncSession, user: User) -> dict[str, int]:
         logger, "account_deletion_counts", level=logging.WARNING,
         user_id=str(uid), is_demo=is_demo, counts=counts, **survivors,
     )
-    await session.execute(delete(User).where(User.id == uid))
+    result = await session.execute(delete(User).where(User.id == uid))
     await session.commit()
+    if result.rowcount != 1:
+        # Already gone (two deletes with one token): no receipt for a
+        # deletion this request did not perform.
+        raise ApiError(401, "unauthenticated", "You need to be signed in for this.")
     log_event(
         logger, "account_deleted", level=logging.WARNING,
         user_id=str(uid), rows_removed=sum(counts.values()),

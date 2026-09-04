@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Protocol
 
 import jsonschema
@@ -65,7 +66,8 @@ def _strip_fences(raw: str) -> str:
     fence is transport cleanup, not validation leniency."""
     text = raw.strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else ""
+        # ```json\n{...}\n```  and  ```json{...}```  and  ```{...}```
+        text = re.sub(r"^```[A-Za-z0-9_-]*\s*", "", text, count=1)
         if text.rstrip().endswith("```"):
             text = text.rstrip()[:-3]
     return text.strip()

@@ -17,7 +17,7 @@ from app.ai.registry import build_providers
 from app.ai.routing import TaskRouter
 from app.config import get_settings, load_ai_config
 from app.db import check_connection, create_engine
-from app.errors import ApiError, register_error_handlers
+from app.errors import ApiError, InternalErrorEnvelope, register_error_handlers
 from app.logging_setup import log_event, setup_logging
 from app.reconcile import run_full_pass
 from app.routers import analyses as analyses_router
@@ -80,6 +80,9 @@ app.include_router(analyses_router.router)
 app.include_router(simulation_router.router)
 app.include_router(chat_router.router)
 
+# Added BEFORE CORS on purpose: the last add_middleware is the outermost layer,
+# and the 500 envelope has to be produced inside CORS to carry its headers.
+app.add_middleware(InternalErrorEnvelope)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=get_settings().cors_origin_regex,

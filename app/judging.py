@@ -55,6 +55,7 @@ from app.ai.routing import TaskRouter
 from app.ai.structured import guarded_structured_call
 from app.logging_setup import log_event
 from app.models import (
+    AnalysisCandidate,
     CandidateScore,
     DateEvaluation,
     DateMessage,
@@ -418,7 +419,18 @@ async def judge_analysis(
         (
             await session.execute(
                 select(SimulatedDate)
-                .where(SimulatedDate.analysis_id == analysis_id)
+                .join(
+                    AnalysisCandidate,
+                    (AnalysisCandidate.analysis_id == SimulatedDate.analysis_id)
+                    & (AnalysisCandidate.candidate_user_id == SimulatedDate.candidate_user_id),
+                )
+                .where(
+                    SimulatedDate.analysis_id == analysis_id,
+                    # "Every read path must filter on status = 'active'"
+                    # (candidate_matching.md §6.6). This one did not, so a
+                    # rejected person's date was judged and scored.
+                    AnalysisCandidate.status == "active",
+                )
                 .order_by(SimulatedDate.created_at, SimulatedDate.ordinal)
             )
         ).scalars()

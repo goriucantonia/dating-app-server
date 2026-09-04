@@ -225,6 +225,14 @@ def _build_traits_block(traits: list[Trait]) -> str:
             continue
         out.append(f"{heading}:")
         for t in rows:
+            if t.status == "disputed":
+                # The person pressed "that's not me". Until the correction
+                # lands this is the one thing the agent must NOT play
+                # straight — it used to be listed with no qualifier at all
+                # (audit 2026-09-02). Named as denied, not dropped: the
+                # denial is itself information about the person.
+                out.append(f"  - (they say this is NOT accurate: {t.label})")
+                continue
             # `confirmed` is surfaced because the person said "yes, that's me"
             # and the agent should lean on it harder than on a guess (§9).
             mark = " [they confirmed this]" if t.status == "confirmed" else ""
@@ -367,11 +375,32 @@ async def compile_persona(
     ]
 
     if not traits or not rows:
-        raise AIError(
-            "there is nothing to build a persona from yet — this person has no "
-            "traits or no answers",
-            task=TASK,
+        # A `failed` ROW, not a raise (audit 2026-09-02): the raise left no
+        # row behind, `POST /persona/compile` had already answered
+        # `compiling`, and the building screen polled a null snapshot for
+        # ever. A failed row is something the client can see and name.
+        reason = (
+            "there is nothing to build a persona from yet — this person has "
+            f"{'no traits' if not traits else 'no answers'}"
         )
+        snapshot = PersonaSnapshot(
+            user_id=user_id,
+            version=await _next_version(session, user_id),
+            status="failed",
+            system_prompt=None,
+            schema_version=SCHEMA_VERSION,
+            traits_hash=compute_traits_hash(traits),
+            source_trait_ids=[t.id for t in traits],
+            error=reason,
+        )
+        session.add(snapshot)
+        await session.commit()
+        log_event(
+            logger, "persona_compile_failed", level=logging.WARNING,
+            user_id=str(user_id), snapshot_id=str(snapshot.id),
+            version=snapshot.version, stage="precheck", error=reason,
+        )
+        return snapshot
 
     snapshot = PersonaSnapshot(
         user_id=user_id,
