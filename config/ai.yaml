@@ -10,6 +10,59 @@ ai:
     google:     { api_key_env: GOOGLE_AI_API_KEY }
     openrouter: { api_key_env: OPENROUTER_API_KEY }
 
+    # The breadth provider — one interface to Anthropic, OpenAI, Azure, Bedrock,
+    # Vertex, Groq, Together, Mistral, DeepSeek, Ollama, vLLM and the rest.
+    # Uncomment to enable it, then point any routing line below at it. The MODEL
+    # STRING is the routing: litellm names a model "<upstream>/<model>".
+    #
+    #   litellm: { api_key_env: LITELLM_API_KEY }
+    #
+    # LITELLM_API_KEY is OPTIONAL and usually stays empty: litellm resolves a key
+    # per upstream from the environment, so ANTHROPIC_API_KEY / OPENAI_API_KEY /
+    # GROQ_API_KEY set in .env is the normal shape. Fill it only to force one key
+    # across every litellm route.
+    #
+    # For a self-hosted or proxied endpoint, add api_base — only this provider
+    # reads it, and the registry refuses it on the other two at startup:
+    #
+    #   litellm: { api_key_env: LITELLM_API_KEY, api_base: "http://host.docker.internal:11434" }
+    #
+    # CHAT MODELS — any of the eight routed tasks, one line each:
+    #   judging:         { provider: litellm, model: "anthropic/claude-sonnet-4-5" }
+    #   chat_reply:      { provider: litellm, model: "groq/llama-3.3-70b-versatile" }
+    #   date_simulation: { provider: litellm, model: "ollama/llama3.1" }
+    #
+    # Structured output needs no special handling: where the upstream implements
+    # a JSON schema litellm uses it, and where it does not the Guard falls back
+    # to embedding the schema in the prompt (ai_interaction.md §4.1).
+    #
+    # EMBEDDING MODELS — the `embeddings:` pin below also accepts litellm:
+    #   embeddings: { provider: litellm, model: "gemini/gemini-embedding-001" }
+    #   embeddings: { provider: litellm, model: "openai/text-embedding-3-small" }
+    #
+    # ...but read this before you change it, because it is NOT a free edit like
+    # a chat route is. Three things follow from it:
+    #
+    #  1. The model must return 768-dimensional vectors, because
+    #     `profile_embeddings` is vector(768). The provider asks for
+    #     `dimensions: 768` and REFUSES a wrong-width vector rather than letting
+    #     it reach the database. openai/text-embedding-3-* truncate to 768 on
+    #     request; many models cannot, and those are simply not usable here
+    #     without a migration that widens the column.
+    #  2. EVERY user is re-embedded, including on a switch that changes nothing
+    #     numerically. `profile_embeddings.embedding_model` stores
+    #     "<provider>/<model>", so moving gemini-embedding-001 from `google` to
+    #     `litellm` changes the stored string from "google/gemini-embedding-001"
+    #     to "litellm/gemini/gemini-embedding-001" and every row reads as
+    #     mismatched — reconciliation logs each at ERROR, blanks its traits_hash
+    #     and queues it, and the next matching run re-embeds. That is the
+    #     consistency check doing its job, not a bug, but on the current volume
+    #     it is ~59 embed calls to reproduce identical vectors.
+    #  3. Mixing is not allowed and the system will not let you. Every stored
+    #     vector must come from ONE model or cosine similarity compares
+    #     incomparable things, which is why this pin is separate from routing in
+    #     the first place.
+
   embeddings:                       # pinned SEPARATELY from chat models:
     provider: google                # every stored vector must come from the same model
     model: gemini-embedding-001     # or similarity comparisons are meaningless.

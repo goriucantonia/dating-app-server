@@ -19,6 +19,9 @@ dependencies = [
     "bcrypt>=4.1",
     "pyjwt>=2.8",
     "pyyaml>=6.0",
+    # One interface to a hundred model providers, behind ours (app/ai/litellm_provider.py).
+    # Imported lazily: it costs seconds to import and only matters if a task routes to it.
+    "litellm>=1.51",
 ]
 
 [project.optional-dependencies]

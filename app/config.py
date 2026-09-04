@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     jwt_secret: str
     google_ai_api_key: str = ""
     openrouter_api_key: str = ""
+    # Optional by design: LiteLLM normally resolves a key per upstream from the
+    # environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, …). Set this only to force
+    # ONE key across every litellm route — a proxy, or a single upstream.
+    litellm_api_key: str = ""
 
     # Local-only phase (decision log #11): Flutter web dev serves from a random
     # localhost port, so dev CORS admits any localhost origin. Both spellings —
@@ -50,6 +54,11 @@ class Settings(BaseSettings):
 
 class ProviderConfig(BaseModel):
     api_key_env: str
+    # Only the `litellm` provider reads this, and the registry refuses it on any
+    # other (config coherence fails at startup, not mid-date — S2-B5). It is what
+    # points LiteLLM at a self-hosted endpoint: a LiteLLM proxy, Ollama, vLLM, or
+    # an OpenAI-compatible gateway.
+    api_base: str | None = None
 
 
 class ModelRoute(BaseModel):

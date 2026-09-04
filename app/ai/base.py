@@ -28,6 +28,15 @@ ROUTED_TASKS: tuple[str, ...] = get_args(TaskName)
 # The mandatory per-call log line's outcome vocabulary (ai_interaction.md §5).
 CallOutcome = Literal["ok", "malformed", "rate_limited", "refused", "gave_up"]
 
+# Must match the `profile_embeddings` vector(768) column — the schema is the
+# system truth for dimensionality, and every stored vector must share it or
+# similarity comparisons are meaningless (ai_interaction.md §3).
+#
+# It lives HERE, in the shared contract, rather than in the provider that
+# happens to serve embeddings today: two providers can embed, and two
+# constants that must agree are two constants that will eventually disagree.
+EMBEDDING_DIMENSIONS = 768
+
 
 @dataclass(frozen=True)
 class Message:

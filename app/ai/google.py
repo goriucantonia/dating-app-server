@@ -16,6 +16,7 @@ from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from app.ai.base import (
+    EMBEDDING_DIMENSIONS,
     AIError,
     GenRequest,
     GenResult,
@@ -27,9 +28,11 @@ from app.ai.base import (
 from app.ai.resilience import RateLimiter, execute
 from app.ai.structured import guarded_structured_call, schema_prompt_block
 
-# Must match the profile_embeddings vector(768) column — the schema is the
-# system truth for dimensionality; gemini-embedding-001's default is 3072.
-EMBEDDING_DIMENSIONS = 768
+# Re-exported: this module defined EMBEDDING_DIMENSIONS until a second
+# embedding-capable provider arrived, and it now lives in base.py so the two
+# cannot drift. gemini-embedding-001's own default is 3072, which is why the
+# embed call below has to request it explicitly.
+__all__ = ["EMBEDDING_DIMENSIONS", "GoogleProvider"]
 
 
 def _l2_normalize(vector: list[float]) -> list[float]:
